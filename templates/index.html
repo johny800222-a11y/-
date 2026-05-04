@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>今彩539 推薦系統</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --red:    #e53935;
+    --gold:   #f9a825;
+    --dark:   #1a1a2e;
+    --card:   #16213e;
+    --card2:  #0f3460;
+    --text:   #eaeaea;
+    --muted:  #8892a4;
+    --green:  #43a047;
+    --radius: 14px;
+  }
+
+  body {
+    background: var(--dark);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", sans-serif;
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+
+  /* ── header ── */
+  header {
+    background: linear-gradient(135deg, #e53935 0%, #b71c1c 100%);
+    padding: 24px 20px 20px;
+    text-align: center;
+    box-shadow: 0 4px 20px rgba(0,0,0,.4);
+  }
+  header h1 { font-size: 1.8rem; letter-spacing: 2px; }
+  header p  { font-size: .85rem; opacity: .8; margin-top: 4px; }
+
+  /* ── layout ── */
+  .container { max-width: 860px; margin: 0 auto; padding: 0 16px; }
+
+  /* ── cards ── */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-top: 20px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.3);
+  }
+  .card-title {
+    font-size: .75rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  /* ── balls ── */
+  .balls { display: flex; gap: 10px; flex-wrap: wrap; }
+  .ball {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .ball-red    { background: var(--red);  color: #fff; }
+  .ball-gold   { background: var(--gold); color: #1a1a2e; }
+  .ball-blue   { background: var(--card2); color: #fff; border: 2px solid #4fc3f7; }
+  .ball-sm {
+    width: 36px; height: 36px; font-size: .9rem;
+  }
+
+  /* ── meta row ── */
+  .meta { font-size: .82rem; color: var(--muted); margin-top: 10px; }
+  .meta span { margin-right: 16px; }
+
+  /* ── recommend section ── */
+  .rec-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 20px;
+  }
+  @media (max-width: 560px) { .rec-grid { grid-template-columns: 1fr; } }
+
+  .rec-card {
+    background: var(--card2);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .rec-label {
+    font-size: .8rem;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .rec-label .icon { font-size: 1.2rem; }
+
+  /* ── button ── */
+  .btn {
+    border: none; cursor: pointer;
+    border-radius: 8px; font-size: .9rem; font-weight: 600;
+    padding: 10px 22px; transition: opacity .15s, transform .1s;
+  }
+  .btn:hover  { opacity: .85; }
+  .btn:active { transform: scale(.97); }
+  .btn-red  { background: var(--red);  color: #fff; }
+  .btn-gold { background: var(--gold); color: #1a1a2e; }
+  .btn-muted{ background: #2a3a5a; color: var(--text); }
+  .btn-row  { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+
+  /* ── progress ── */
+  #progress-wrap { display:none; margin-top:16px; }
+  .progress-bar-bg {
+    background: #0f1e35; border-radius: 8px; height: 10px; overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%; background: var(--red);
+    border-radius: 8px; transition: width .3s;
+    width: 0%;
+  }
+  .progress-text { font-size: .8rem; color: var(--muted); margin-top: 6px; }
+
+  /* ── freq chart ── */
+  .freq-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .freq-item {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .freq-count { font-size: .72rem; color: var(--muted); }
+
+  /* ── recent draws ── */
+  .draw-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 0; border-bottom: 1px solid #1e2d45;
+  }
+  .draw-row:last-child { border-bottom: none; }
+  .draw-date { font-size: .8rem; color: var(--muted); width: 88px; flex-shrink: 0; }
+
+  /* ── stats numbers ── */
+  .stat-row {
+    display: flex; gap: 24px; flex-wrap: wrap; margin-top: 6px;
+  }
+  .stat-item { text-align: center; }
+  .stat-num  { font-size: 1.6rem; font-weight: 700; color: var(--gold); }
+  .stat-lbl  { font-size: .75rem; color: var(--muted); margin-top: 2px; }
+
+  /* ── overlay ── */
+  #overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.7); z-index: 99;
+    align-items: center; justify-content: center;
+    flex-direction: column; gap: 16px;
+  }
+  #overlay.show { display: flex; }
+  #overlay p { font-size: 1rem; color: var(--muted); }
+  .spinner {
+    width: 48px; height: 48px;
+    border: 4px solid #2a3a5a;
+    border-top-color: var(--red);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── notice ── */
+  .notice {
+    font-size: .78rem; color: var(--muted);
+    border-left: 3px solid #2a3a5a;
+    padding: 8px 12px; margin-top: 16px;
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>今彩 539</h1>
+  <p>自動抓取 · 統計分析 · 號碼推薦</p>
+</header>
+
+<div id="overlay">
+  <div class="spinner"></div>
+  <p id="overlay-text">產生推薦中…</p>
+</div>
+
+<div class="container">
+
+  <!-- ── 狀態 / 初始化 ── -->
+  <div class="card" id="init-card">
+    <div class="card-title">資料狀態</div>
+    <p id="init-msg" style="color:var(--muted);font-size:.9rem;">載入中…</p>
+    <div id="progress-wrap">
+      <div class="progress-bar-bg"><div class="progress-bar" id="prog-bar"></div></div>
+      <p class="progress-text" id="prog-text">準備下載…</p>
+    </div>
+    <div class="btn-row" id="init-btns" style="display:none;">
+      <button class="btn btn-red"   onclick="startFetch()">下載完整資料（約1分鐘）</button>
+      <button class="btn btn-muted" onclick="updateData()" id="btn-update">補抓最新一期</button>
+    </div>
+  </div>
+
+  <!-- ── 最新開獎 ── -->
+  <div class="card" id="latest-card" style="display:none;">
+    <div class="card-title">最新開獎</div>
+    <div class="balls" id="latest-balls"></div>
+    <div class="meta"><span id="latest-date"></span></div>
+  </div>
+
+  <!-- ── 演算法學習狀態 ── -->
+  <div class="card" id="learn-card" style="display:none;">
+    <div class="card-title">演算法學習狀態</div>
+    <div class="stat-row">
+      <div class="stat-item">
+        <div class="stat-num" id="learn-rounds">—</div>
+        <div class="stat-lbl">已學習期數</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-num" id="learn-prob-avg" style="color:#e57373;">—</div>
+        <div class="stat-lbl">🔥 近30期平均命中</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-num" id="learn-value-avg" style="color:var(--gold);">—</div>
+        <div class="stat-lbl">💰 近30期平均命中</div>
+      </div>
+    </div>
+    <div id="learn-history" style="margin-top:16px;"></div>
+  </div>
+
+  <!-- ── 推薦號碼 ── -->
+  <div class="card" id="rec-card" style="display:none;">
+    <div class="card-title">本期推薦號碼</div>
+    <div class="rec-grid">
+      <div class="rec-card">
+        <div class="rec-label"><span class="icon">🔥</span> 最高機率組合</div>
+        <div class="balls" id="prob-balls"></div>
+        <div class="meta" id="prob-meta"></div>
+      </div>
+      <div class="rec-card">
+        <div class="rec-label"><span class="icon">💰</span> 最高獎金組合</div>
+        <div class="balls" id="value-balls"></div>
+        <div class="meta" id="value-meta"></div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-red" onclick="getRecommend()">重新產生推薦</button>
+    </div>
+    <div class="notice">
+      ⚠️ 彩券開獎為獨立隨機事件，以上為統計分析結果，請理性購買。
+    </div>
+  </div>
+
+  <!-- ── 統計 ── -->
+  <div class="card" id="stats-card" style="display:none;">
+    <div class="card-title">歷史統計</div>
+    <div class="stat-row">
+      <div class="stat-item"><div class="stat-num" id="stat-total">—</div><div class="stat-lbl">總期數</div></div>
+      <div class="stat-item"><div class="stat-num" id="stat-start">—</div><div class="stat-lbl">資料起始</div></div>
+      <div class="stat-item"><div class="stat-num" id="stat-end">—</div><div class="stat-lbl">最新資料</div></div>
+    </div>
+
+    <div class="card-title" style="margin-top:22px;">🔥 歷史熱門號碼（前10）</div>
+    <div class="freq-grid" id="hot-grid"></div>
+
+    <div class="card-title" style="margin-top:22px;">❄️ 歷史冷門號碼（後10）</div>
+    <div class="freq-grid" id="cold-grid"></div>
+
+    <div class="card-title" style="margin-top:22px;">近10期開獎</div>
+    <div id="recent-list"></div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+// ── 工具 ──────────────────────────────────────────────────────────────────────
+
+function makeBall(n, cls = "ball-red") {
+  const d = document.createElement("div");
+  d.className = `ball ${cls}`;
+  d.textContent = String(n).padStart(2, "0");
+  return d;
+}
+
+function ballColor(n) {
+  if (n >= 32) return "ball-gold";
+  if (n % 2 === 0) return "ball-blue";
+  return "ball-red";
+}
+
+function metaStr(nums) {
+  const odds  = nums.filter(n => n % 2 !== 0).length;
+  const evens = 5 - odds;
+  const total = nums.reduce((a, b) => a + b, 0);
+  return `奇 ${odds} 偶 ${evens}　總和 ${total}`;
+}
+
+function renderBalls(containerId, nums, metaId = null) {
+  const wrap = document.getElementById(containerId);
+  wrap.innerHTML = "";
+  nums.forEach(n => wrap.appendChild(makeBall(n, ballColor(n))));
+  if (metaId) document.getElementById(metaId).textContent = metaStr(nums);
+}
+
+function showOverlay(txt = "處理中…") {
+  document.getElementById("overlay-text").textContent = txt;
+  document.getElementById("overlay").classList.add("show");
+}
+function hideOverlay() {
+  document.getElementById("overlay").classList.remove("show");
+}
+
+// ── 狀態輪詢 ──────────────────────────────────────────────────────────────────
+
+let _pollTimer = null;
+
+async function checkStatus() {
+  let r;
+  try {
+    r = await fetch("/api/status").then(res => res.json());
+  } catch (e) {
+    document.getElementById("init-msg").textContent = "⚠️ 無法連線到伺服器，請確認 Flask 已啟動（port 5539）";
+    return;
+  }
+
+  if (r.fetching) {
+    document.getElementById("init-msg").textContent = "資料下載中，請稍候…";
+    document.getElementById("progress-wrap").style.display = "block";
+    document.getElementById("init-btns").style.display = "none";
+    const pct = Math.round((r.page / r.total) * 100);
+    document.getElementById("prog-bar").style.width = pct + "%";
+    document.getElementById("prog-text").textContent = `第 ${r.page} / ${r.total} 頁（${pct}%）`;
+    if (!_pollTimer) _pollTimer = setInterval(checkStatus, 1200);
+    return;
+  }
+
+  clearInterval(_pollTimer); _pollTimer = null;
+  document.getElementById("progress-wrap").style.display = "none";
+
+  if (r.ready) {
+    document.getElementById("init-msg").textContent = "✅ 資料就緒";
+    document.getElementById("init-btns").style.display = "flex";
+    // 並行載入統計與推薦，不互相等待
+    Promise.all([loadStats(), getRecommend()]);
+  } else {
+    document.getElementById("init-msg").textContent = "尚無資料，請先下載完整歷史資料";
+    document.getElementById("init-btns").style.display = "flex";
+    document.getElementById("btn-update").style.display = "none";
+  }
+}
+
+// ── 資料操作 ──────────────────────────────────────────────────────────────────
+
+async function startFetch() {
+  await fetch("/api/fetch", { method: "POST" });
+  checkStatus();
+}
+
+async function updateData() {
+  showOverlay("補抓最新資料…");
+  const r = await fetch("/api/update", { method: "POST" }).then(r => r.json());
+  hideOverlay();
+  if (r.ok) {
+    let msg = r.updated ? `✅ 已更新，共 ${r.total} 筆` : "✅ 已是最新資料";
+    if (r.check_result) {
+      const c = r.check_result;
+      msg += `　｜ 上期對獎：機率組合中 ${c.prob_hits} 顆，獎金組合中 ${c.value_hits} 顆`;
+    }
+    document.getElementById("init-msg").textContent = msg;
+    Promise.all([loadStats(), getRecommend()]);
+  } else {
+    alert(r.msg);
+  }
+}
+
+// ── 統計 ──────────────────────────────────────────────────────────────────────
+
+async function loadStats() {
+  const s = await fetch("/api/stats").then(r => r.json());
+  if (!s.ok) return;
+
+  // 最新開獎
+  document.getElementById("latest-card").style.display = "block";
+  renderBalls("latest-balls", s.latest_nums);
+  document.getElementById("latest-date").textContent = `開獎日期：${s.latest_date}`;
+
+  // 數字
+  document.getElementById("stats-card").style.display = "block";
+  document.getElementById("stat-total").textContent = s.total.toLocaleString();
+  document.getElementById("stat-start").textContent = s.date_start.slice(0, 7);
+  document.getElementById("stat-end").textContent   = s.date_end.slice(0, 7);
+
+  // 熱門
+  const hotG = document.getElementById("hot-grid");
+  hotG.innerHTML = "";
+  s.hot_nums.forEach(({ num, count }) => {
+    const d = document.createElement("div");
+    d.className = "freq-item";
+    const b = makeBall(num, "ball-red ball-sm");
+    b.className = `ball ball-red ball-sm`;
+    d.appendChild(b);
+    const c = document.createElement("span");
+    c.className = "freq-count"; c.textContent = count + "次";
+    d.appendChild(c);
+    hotG.appendChild(d);
+  });
+
+  // 冷門
+  const coldG = document.getElementById("cold-grid");
+  coldG.innerHTML = "";
+  s.cold_nums.forEach(({ num, count }) => {
+    const d = document.createElement("div");
+    d.className = "freq-item";
+    const b = makeBall(num, "ball-blue ball-sm");
+    b.className = `ball ball-blue ball-sm`;
+    d.appendChild(b);
+    const c = document.createElement("span");
+    c.className = "freq-count"; c.textContent = count + "次";
+    d.appendChild(c);
+    coldG.appendChild(d);
+  });
+
+  // 近期
+  const rl = document.getElementById("recent-list");
+  rl.innerHTML = "";
+  s.recent_draws.forEach(draw => {
+    const row = document.createElement("div");
+    row.className = "draw-row";
+    const dt = document.createElement("span");
+    dt.className = "draw-date"; dt.textContent = draw.date;
+    row.appendChild(dt);
+    const bw = document.createElement("div");
+    bw.className = "balls";
+    draw.nums.forEach(n => bw.appendChild(makeBall(n, ballColor(n) + " ball-sm")));
+    row.appendChild(bw);
+    rl.appendChild(row);
+  });
+
+  // 學習狀態
+  const ln = s.learn;
+  if (ln && ln.total_rounds >= 0) {
+    document.getElementById("learn-card").style.display = "block";
+    document.getElementById("learn-rounds").textContent    = ln.total_rounds;
+    document.getElementById("learn-prob-avg").textContent  = ln.total_rounds > 0 ? ln.prob_avg_hits.toFixed(2) + " 顆" : "—";
+    document.getElementById("learn-value-avg").textContent = ln.total_rounds > 0 ? ln.value_avg_hits.toFixed(2) + " 顆" : "—";
+
+    const lh = document.getElementById("learn-history");
+    lh.innerHTML = "";
+    if (ln.history && ln.history.length > 0) {
+      [...ln.history].reverse().forEach(rec => {
+        const row = document.createElement("div");
+        row.className = "draw-row";
+        row.style.flexWrap = "wrap"; row.style.gap = "8px";
+
+        const dt = document.createElement("span");
+        dt.className = "draw-date"; dt.textContent = rec.date;
+        row.appendChild(dt);
+
+        const bw = document.createElement("div");
+        bw.className = "balls";
+        rec.actual.forEach(n => bw.appendChild(makeBall(n, ballColor(n) + " ball-sm")));
+        row.appendChild(bw);
+
+        const hits = document.createElement("span");
+        hits.style.cssText = "font-size:.78rem;color:var(--muted);white-space:nowrap;";
+        hits.textContent = `🔥${rec.prob_hits}中 💰${rec.value_hits}中`;
+        row.appendChild(hits);
+
+        lh.appendChild(row);
+      });
+    } else {
+      lh.innerHTML = `<p style="color:var(--muted);font-size:.82rem;">點「補抓最新一期」後，每次有新開獎會自動對獎並學習。</p>`;
+    }
+  }
+}
+
+// ── 推薦 ──────────────────────────────────────────────────────────────────────
+
+async function getRecommend() {
+  showOverlay("產生推薦號碼…");
+  const r = await fetch("/api/recommend").then(r => r.json());
+  hideOverlay();
+  if (!r.ok) { alert(r.msg); return; }
+
+  document.getElementById("rec-card").style.display = "block";
+  renderBalls("prob-balls", r.probability, "prob-meta");
+  renderBalls("value-balls", r.value, "value-meta");
+}
+
+// ── 啟動 ──────────────────────────────────────────────────────────────────────
+checkStatus();
+</script>
+</body>
+</html>
