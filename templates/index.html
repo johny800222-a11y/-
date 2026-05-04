@@ -238,8 +238,11 @@
   <!-- ── 推薦號碼 ── -->
   <div class="card" id="rec-card" style="display:none;">
     <div class="card-title">本期推薦號碼</div>
-    <div style="margin-bottom:10px;font-size:.8rem;color:var(--muted);">
+    <div style="font-size:.8rem;color:var(--muted);margin-bottom:4px;">
       綜合 5800+ 期大數據・頻率 × 學習修正 × 遺漏補正
+    </div>
+    <div style="font-size:.78rem;color:var(--muted);margin-bottom:16px;" id="rec-period">
+      依據開獎日 — 本期固定，新開獎後自動更新
     </div>
     <div class="balls" id="best-balls" style="justify-content:center;gap:14px;margin:8px 0 16px;"></div>
     <div class="meta" id="best-meta" style="text-align:center;font-size:.9rem;"></div>
@@ -481,6 +484,10 @@ async function getRecommend() {
 
   document.getElementById("rec-card").style.display = "block";
   renderBalls("best-balls", r.best, "best-meta");
+  if (r.draw_date) {
+    document.getElementById("rec-period").textContent =
+      `依據最新開獎日 ${r.draw_date} 產生・本期固定，新開獎後自動更新`;
+  }
 }
 
 // ── 啟動 ──────────────────────────────────────────────────────────────────────

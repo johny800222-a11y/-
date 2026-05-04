@@ -4,7 +4,7 @@
 
 import json
 import threading
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template
 import core
 import learner
 
@@ -13,20 +13,44 @@ app = Flask(__name__)
 # 全量抓取進度
 _fetch_state = {"running": False, "page": 0, "total": core.TOTAL_PAGES, "error": ""}
 
-# 記憶上一期推薦，供下次對獎使用
-_last_rec_file = core.DATA_FILE.parent / "last_rec.json"
+# 本期推薦快取：格式 {"draw_date": "2026-05-02", "best": [1,2,3,4,5]}
+# 同一期內不論重新整理幾次，都回傳同一組號碼
+_rec_file = core.DATA_FILE.parent / "current_rec.json"
 
-def _save_last_rec(prob: list, value: list):
-    _last_rec_file.write_text(json.dumps({"prob": prob, "value": value}))
 
-def _load_last_rec() -> tuple[list, list]:
-    if _last_rec_file.exists():
+def _load_rec() -> dict:
+    if _rec_file.exists():
         try:
-            d = json.loads(_last_rec_file.read_text())
-            return d.get("prob", []), d.get("value", [])
+            return json.loads(_rec_file.read_text())
         except Exception:
             pass
-    return [], []
+    return {}
+
+
+def _save_rec(draw_date: str, nums: list):
+    _rec_file.write_text(json.dumps({"draw_date": draw_date, "best": nums}))
+
+
+def _get_or_generate_rec(df) -> list[int]:
+    """
+    若快取的推薦與最新開獎日期相同，直接回傳快取。
+    否則（新一期開始）重新產生並存檔。
+    """
+    latest_date = df["date"].max().strftime("%Y-%m-%d")
+    cached = _load_rec()
+
+    if cached.get("draw_date") == latest_date:
+        return cached["best"]
+
+    # 新一期：先對上期推薦做學習，再產生新推薦
+    old_best = cached.get("best", [])
+    if old_best:
+        learner.auto_update_from_df(df, old_best, old_best)
+
+    weights = learner.get_weights()
+    best = core.recommend_best(df, weights)
+    _save_rec(latest_date, best)
+    return best
 
 
 # ── 頁面 ─────────────────────────────────────────────────────────────────────
@@ -75,19 +99,7 @@ def api_update():
         return jsonify({"ok": False, "msg": "請先下載資料"})
     try:
         df, updated = core.update_latest()
-
-        # 若有新一期開獎，自動對上期推薦
-        check_result = None
-        if updated:
-            last_prob, last_value = _load_last_rec()
-            check_result = learner.auto_update_from_df(df, last_prob, last_value)
-
-        return jsonify({
-            "ok":           True,
-            "updated":      updated,
-            "total":        len(df),
-            "check_result": check_result,
-        })
+        return jsonify({"ok": True, "updated": updated, "total": len(df)})
     except Exception as e:
         return jsonify({"ok": False, "msg": str(e)})
 
@@ -108,11 +120,14 @@ def api_recommend():
     if df is None:
         return jsonify({"ok": False, "msg": "尚無資料"})
 
-    weights = learner.get_weights()
-    best    = core.recommend_best(df, weights)
+    best = _get_or_generate_rec(df)
+    cached = _load_rec()
 
-    _save_last_rec(best, best)
-    return jsonify({"ok": True, "best": best})
+    return jsonify({
+        "ok":        True,
+        "best":      best,
+        "draw_date": cached.get("draw_date", ""),
+    })
 
 
 @app.route("/api/learn/history")
@@ -121,5 +136,4 @@ def api_learn_history():
 
 
 if __name__ == "__main__":
-    # 綁定 0.0.0.0 → 同網路其他裝置可連線
     app.run(host="0.0.0.0", debug=False, port=5539)
