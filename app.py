@@ -109,11 +109,10 @@ def api_recommend():
         return jsonify({"ok": False, "msg": "尚無資料"})
 
     weights = learner.get_weights()
-    prob    = core.recommend_probability(df, weights)
-    value   = core.recommend_value(df, weights)
+    best    = core.recommend_best(df, weights)
 
-    _save_last_rec(prob, value)
-    return jsonify({"ok": True, "probability": prob, "value": value})
+    _save_last_rec(best, best)
+    return jsonify({"ok": True, "best": best})
 
 
 @app.route("/api/learn/history")

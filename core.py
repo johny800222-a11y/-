@@ -99,51 +99,35 @@ def _ok(nums: list[int]) -> bool:
     return odds in (2, 3) and 75 <= sum(nums) <= 125
 
 
-def recommend_probability(df: pd.DataFrame, learn_weights: dict[int, float] | None = None) -> list[int]:
+def recommend_best(df: pd.DataFrame, learn_weights: dict[int, float] | None = None) -> list[int]:
     """
-    頻率加權 × 學習權重 → 熱門且近期準確的號碼優先
+    大數據綜合推薦：
+      歷史頻率（長期）× 學習權重（近期命中修正）× 遺漏值修正（近50期未出現補正）
+    三層訊號加乘後做加權抽樣，兼顧熱門趨勢與冷號補回，
+    並通過奇偶比 2:3/3:2、總和 75-125 的合理性過濾。
     """
     freq    = Counter(df[BALL_COLS].values.flatten().tolist())
-    pool    = sorted(freq)
-    # 合併頻率權重與學習權重
-    weights = [
-        freq[n] * (learn_weights.get(n, 1.0) if learn_weights else 1.0)
-        for n in pool
-    ]
-    for _ in range(30000):
+    total   = sum(freq.values())
+    avg_freq = total / len(BALL_RANGE)
+
+    # 近50期遺漏修正：久未出現的號碼給予補正加成
+    recent50 = Counter(df.tail(50)[BALL_COLS].values.flatten().tolist())
+    avg_recent = sum(recent50.values()) / len(BALL_RANGE)
+
+    pool    = sorted(BALL_RANGE)
+    weights = []
+    for n in pool:
+        w = freq.get(n, 0) / avg_freq                          # 長期頻率
+        w *= (learn_weights.get(n, 1.0) if learn_weights else 1.0)  # 學習修正
+        # 近50期遺漏越多 → 補正越大（最高 1.5 倍）
+        miss_bonus = 1.0 + 0.5 * max(0, avg_recent - recent50.get(n, 0)) / avg_recent
+        w *= miss_bonus
+        weights.append(max(w, 0.01))
+
+    for _ in range(50000):
         chosen = sorted(set(random.choices(pool, weights=weights, k=10)))[:5]
         if len(chosen) == 5 and _ok(chosen):
             return chosen
-    return sorted(random.sample(BALL_RANGE, 5))
-
-
-def recommend_value(df: pd.DataFrame, learn_weights: dict[int, float] | None = None) -> list[int]:
-    """
-    避開人群 + 近期冷門 + 學習權重修正
-    """
-    hot50 = set(n for n, _ in Counter(
-        df.tail(50)[BALL_COLS].values.flatten().tolist()
-    ).most_common(10))
-
-    high  = list(range(32, 40))
-    low   = [n for n in range(1, 32) if n not in hot50] or list(range(1, 32))
-
-    # 學習權重：選擇近期「被低估但實際開出」的號碼
-    if learn_weights:
-        low  = sorted(low,  key=lambda n: learn_weights.get(n, 1.0), reverse=True)[:20]
-        high = sorted(high, key=lambda n: learn_weights.get(n, 1.0), reverse=True)
-
-    for _ in range(30000):
-        try:
-            cand = sorted(set(random.sample(high, 2) + random.sample(low, 3)))
-        except ValueError:
-            continue
-        if len(cand) != 5:
-            continue
-        if any(cand[i+1] - cand[i] == 1 for i in range(4)):
-            continue
-        if _ok(cand):
-            return cand
     return sorted(random.sample(BALL_RANGE, 5))
 
 

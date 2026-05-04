@@ -238,22 +238,12 @@
   <!-- ── 推薦號碼 ── -->
   <div class="card" id="rec-card" style="display:none;">
     <div class="card-title">本期推薦號碼</div>
-    <div class="rec-grid">
-      <div class="rec-card">
-        <div class="rec-label"><span class="icon">🔥</span> 最高機率組合</div>
-        <div class="balls" id="prob-balls"></div>
-        <div class="meta" id="prob-meta"></div>
-      </div>
-      <div class="rec-card">
-        <div class="rec-label"><span class="icon">💰</span> 最高獎金組合</div>
-        <div class="balls" id="value-balls"></div>
-        <div class="meta" id="value-meta"></div>
-      </div>
+    <div style="margin-bottom:10px;font-size:.8rem;color:var(--muted);">
+      綜合 5800+ 期大數據・頻率 × 學習修正 × 遺漏補正
     </div>
-    <div class="btn-row">
-      <button class="btn btn-red" onclick="getRecommend()">重新產生推薦</button>
-    </div>
-    <div class="notice">
+    <div class="balls" id="best-balls" style="justify-content:center;gap:14px;margin:8px 0 16px;"></div>
+    <div class="meta" id="best-meta" style="text-align:center;font-size:.9rem;"></div>
+    <div class="notice" style="margin-top:16px;">
       ⚠️ 彩券開獎為獨立隨機事件，以上為統計分析結果，請理性購買。
     </div>
   </div>
@@ -470,7 +460,7 @@ async function loadStats() {
 
         const hits = document.createElement("span");
         hits.style.cssText = "font-size:.78rem;color:var(--muted);white-space:nowrap;";
-        hits.textContent = `🔥${rec.prob_hits}中 💰${rec.value_hits}中`;
+        hits.textContent = `命中 ${rec.prob_hits} 顆`;
         row.appendChild(hits);
 
         lh.appendChild(row);
@@ -490,8 +480,7 @@ async function getRecommend() {
   if (!r.ok) { alert(r.msg); return; }
 
   document.getElementById("rec-card").style.display = "block";
-  renderBalls("prob-balls", r.probability, "prob-meta");
-  renderBalls("value-balls", r.value, "value-meta");
+  renderBalls("best-balls", r.best, "best-meta");
 }
 
 // ── 啟動 ──────────────────────────────────────────────────────────────────────
