@@ -181,7 +181,20 @@ def api_bingo_stats():
 def api_bingo_update():
     try:
         df, updated = bingo_core.update_latest()
-        return jsonify({"ok": True, "updated": updated, "total": len(df)})
+        total = len(df) if df is not None else 0
+        return jsonify({"ok": True, "updated": updated, "total": total})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
+@app.route("/api/bingo/ping")
+def api_bingo_ping():
+    """測試 Railway 是否能連到 pilio.idv.tw"""
+    try:
+        import requests as req
+        r = req.get("https://www.pilio.idv.tw/bingo/list.asp",
+                    headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        return jsonify({"ok": True, "status": r.status_code, "len": len(r.content)})
     except Exception as e:
         return jsonify({"ok": False, "msg": str(e)})
 
