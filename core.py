@@ -96,7 +96,12 @@ def _ok(nums: list[int]) -> bool:
     if len(set(nums)) != 5:
         return False
     odds = sum(1 for n in nums if n % 2 != 0)
-    return odds in (2, 3) and 75 <= sum(nums) <= 125
+    if not (odds in (2, 3) and 75 <= sum(nums) <= 125):
+        return False
+    # 不允許超過2個連號（3個以上連號視為異常）
+    s = sorted(nums)
+    consec = sum(1 for i in range(len(s) - 1) if s[i + 1] - s[i] == 1)
+    return consec <= 2
 
 
 def recommend_best(df: pd.DataFrame, learn_weights: dict[int, float] | None = None) -> list[int]:
@@ -122,9 +127,9 @@ def recommend_best(df: pd.DataFrame, learn_weights: dict[int, float] | None = No
         # 近50期遺漏越多 → 補正越大（最高 1.5 倍）
         miss_bonus = 1.0 + 0.5 * max(0, avg_recent - recent50.get(n, 0)) / avg_recent
         w *= miss_bonus
-        # 連號傾向加成：相鄰號碼在近50期出現越多，本號權重越高
+        # 連號傾向加成：相鄰號碼在近50期出現越多，本號權重越高（上限1.3倍）
         adj = recent50.get(n - 1, 0) + recent50.get(n + 1, 0)
-        w *= (1.0 + 0.3 * adj / max(avg_recent, 1))
+        w *= min(1.3, 1.0 + 0.15 * adj / max(avg_recent, 1))
         weights.append(max(w, 0.01))
 
     for _ in range(50000):
