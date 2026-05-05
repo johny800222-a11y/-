@@ -27,8 +27,7 @@ def _parse_page(html: str) -> list[dict]:
     text = soup.get_text("\n")
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
-    period_re = re.compile(r"期別[：:]?\s*(\d{9,})")
-    num_re    = re.compile(r"\b(\d{2})\b")
+    period_re = re.compile(r"(\d{9,})")
     time_re   = re.compile(r"\((\d{2}:\d{2})\)")
     date_re   = re.compile(r"(\d{4}/\d{1,2}/\d{1,2})")
 
@@ -38,27 +37,35 @@ def _parse_page(html: str) -> list[dict]:
 
     while i < len(lines):
         dm = date_re.search(lines[i])
-        if dm:
+        if dm and "BINGO" not in lines[i] and len(lines[i]) < 30:
             cur_date = dm.group(1)
             i += 1
             continue
 
         pm = period_re.search(lines[i])
-        if pm:
+        if pm and len(pm.group(1)) >= 9:
             period = pm.group(1)
-            blob = " ".join(lines[i:i+4])
-            nums = num_re.findall(blob)
-            nums = [int(n) for n in nums if 1 <= int(n) <= 80]
-            nums = list(dict.fromkeys(nums))[:20]  # dedupe, keep order
-
-            tm = time_re.search(blob)
-            draw_time = tm.group(1) if tm else ""
+            # 往後收集號碼：單獨數字行（1-80），遇到時間行停止
+            nums = []
+            j = i + 1
+            draw_time = ""
+            while j < len(lines) and len(nums) < 20:
+                line = lines[j]
+                tm = time_re.search(line)
+                if tm:
+                    draw_time = tm.group(1)
+                    break
+                if re.fullmatch(r"\d{1,2}", line):
+                    n = int(line)
+                    if 1 <= n <= 80:
+                        nums.append(n)
+                j += 1
 
             if len(nums) == 20:
                 row = {"period": period, "date": cur_date, "time": draw_time}
-                row.update({f"n{j+1}": nums[j] for j in range(20)})
+                row.update({f"n{k+1}": nums[k] for k in range(20)})
                 records.append(row)
-            i += 1
+            i = j + 1
             continue
         i += 1
 
@@ -91,6 +98,8 @@ def update_latest() -> tuple[pd.DataFrame, bool]:
     existing = load_data()
     new_recs  = _parse_page(_get_html(BASE_URL))
     if not new_recs:
+        if existing is None:
+            return pd.DataFrame(), False
         return existing, False
 
     new_df = pd.DataFrame(new_recs)
@@ -98,10 +107,11 @@ def update_latest() -> tuple[pd.DataFrame, bool]:
 
     if existing is None or existing.empty:
         df = new_df.drop_duplicates("period").sort_values("datetime").reset_index(drop=True)
+        updated = True
     else:
         df = pd.concat([existing, new_df]).drop_duplicates("period").sort_values("datetime").reset_index(drop=True)
+        updated = len(df) > len(existing)
 
-    updated = existing is None or len(df) > len(existing)
     df.to_csv(DATA_FILE, index=False)
     return df, updated
 
