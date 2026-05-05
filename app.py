@@ -145,11 +145,23 @@ def bingo_index():
     return render_template("bingo.html")
 
 
+_bingo_winrate_cache = {"data": None, "at": 0}
+
+
+def _get_winrate(df):
+    import time as _time
+    now = _time.time()
+    if _bingo_winrate_cache["data"] and now - _bingo_winrate_cache["at"] < 300:
+        return _bingo_winrate_cache["data"]
+    wr = bingo_core.winrate_24h(df)
+    _bingo_winrate_cache.update(data=wr, at=now)
+    return wr
+
+
 @app.route("/api/bingo/stats")
 def api_bingo_stats():
     df = bingo_core.load_data()
     if df is None or df.empty:
-        # 首次自動初始化
         try:
             df = bingo_core.init_data()
         except Exception as e:
@@ -162,6 +174,7 @@ def api_bingo_stats():
     t10       = bingo_core.top10(np_list)
     bs        = bingo_core.guess_bigsmall(np_list)
     oe        = bingo_core.guess_oddeven(np_list)
+    wr        = _get_winrate(df)
     latest    = df.iloc[-1]
     latest_time = str(latest.get("time", "")) if "time" in latest else ""
 
@@ -174,6 +187,7 @@ def api_bingo_stats():
         "top10":       t10,
         "bigsmall":    bs,
         "oddeven":     oe,
+        "winrate":     wr,
     })
 
 

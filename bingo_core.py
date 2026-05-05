@@ -288,3 +288,79 @@ def guess_oddeven(num_prob_list: list[dict]) -> dict:
     winner = "單" if odd_pct >= even_pct else "雙"
     conf   = max(odd_pct, even_pct)
     return {"answer": winner, "conf": conf, "odd": odd_pct, "even": even_pct}
+
+
+# ── 24小時勝率 ──────────────────────────────────────────────────────────────
+
+def winrate_24h(df: pd.DataFrame) -> dict:
+    """
+    對近24小時（約288期）逐期回測：
+    - 用前N期資料預測第N+1期的猜大小/猜單雙
+    - 對比實際超級獎號（以各期20個號碼的中位數模擬）
+    - 回傳整體/猜大小/猜單雙 勝率
+    """
+    # 取近288期（24小時）+ 前100期做預測用
+    window = 288
+    lookback = 100
+    total_needed = window + lookback
+
+    if len(df) < lookback + 2:
+        return {"overall": 0, "bigsmall": 0, "oddeven": 0,
+                "total": 0, "bs_hits": 0, "oe_hits": 0, "yesterday": None}
+
+    recent = df.tail(total_needed).reset_index(drop=True)
+    eval_start = max(lookback, len(recent) - window)
+
+    bs_hits = oe_hits = total = 0
+
+    for i in range(eval_start, len(recent)):
+        history = recent.iloc[:i]
+        if len(history) < 10:
+            continue
+
+        p = model_probs(history, recent_n=min(100, len(history)))
+        np_list = num_probs(history, p, recent_n=min(100, len(history)))
+
+        bs_pred = guess_bigsmall(np_list)["answer"]
+        oe_pred = guess_oddeven(np_list)["answer"]
+
+        # 實際結果：用當期20個號碼的中位數判斷大小/單雙
+        actual_nums = [int(recent.iloc[i][c]) for c in NUM_COLS]
+        median_num  = sorted(actual_nums)[9]  # 第10小的號碼作為代表
+        actual_bs   = "大" if median_num > 40 else "小"
+        actual_oe   = "單" if median_num % 2 != 0 else "雙"
+
+        if bs_pred == actual_bs:
+            bs_hits += 1
+        if oe_pred == actual_oe:
+            oe_hits += 1
+        total += 1
+
+    if total == 0:
+        return {"overall": 0, "bigsmall": 0, "oddeven": 0,
+                "total": 0, "bs_hits": 0, "oe_hits": 0}
+
+    bs_rate = round(bs_hits / total * 100)
+    oe_rate = round(oe_hits / total * 100)
+    overall = round((bs_hits + oe_hits) / (total * 2) * 100)
+
+    # 前一天勝率（用前window期做對比，若資料不足則None）
+    yesterday = None
+    if len(df) >= total_needed + window:
+        prev_df = df.iloc[-(total_needed + window):-window]
+        prev_wr = winrate_24h(prev_df)
+        yesterday = {
+            "overall":   prev_wr["overall"],
+            "bigsmall":  prev_wr["bigsmall"],
+            "oddeven":   prev_wr["oddeven"],
+        }
+
+    return {
+        "overall":   overall,
+        "bigsmall":  bs_rate,
+        "oddeven":   oe_rate,
+        "total":     total,
+        "bs_hits":   bs_hits,
+        "oe_hits":   oe_hits,
+        "yesterday": yesterday,
+    }

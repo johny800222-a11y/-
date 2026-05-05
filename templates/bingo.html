@@ -70,6 +70,18 @@
 
   .notice { font-size: .75rem; color: var(--muted); margin-top: 14px; padding: 10px; background: #ffffff08; border-radius: 8px; line-height: 1.6; }
   .update-info { font-size: .72rem; color: var(--muted); text-align: center; margin-top: 8px; }
+
+  /* 24小時勝率 */
+  .wr-row { display: flex; gap: 10px; }
+  .wr-box { flex: 1; background: var(--dark); border-radius: 10px; padding: 12px 6px; text-align: center; }
+  .wr-lbl { font-size: .66rem; color: var(--muted); margin-bottom: 6px; }
+  .wr-ring { position: relative; width: 64px; height: 64px; margin: 0 auto 6px; }
+  .wr-ring svg { transform: rotate(-90deg); }
+  .wr-ring .track { fill: none; stroke: #222; stroke-width: 7; }
+  .wr-ring .fill  { fill: none; stroke-width: 7; stroke-linecap: round; }
+  .wr-num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 1rem; font-weight: 800; }
+  .wr-sub { font-size: .58rem; color: #777; }
+  .wr-trend { font-size: .62rem; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -84,6 +96,48 @@
 </header>
 
 <div class="container">
+
+  <div class="card">
+    <div class="card-title">📈 24小時勝率</div>
+    <div class="wr-row">
+      <div class="wr-box">
+        <div class="wr-lbl">整體勝率</div>
+        <div class="wr-ring">
+          <svg viewBox="0 0 64 64" width="64" height="64">
+            <circle class="track" cx="32" cy="32" r="28"/>
+            <circle class="fill" id="wr-overall-ring" cx="32" cy="32" r="28" stroke="#2ecc71" stroke-dasharray="175.9" stroke-dashoffset="175.9"/>
+          </svg>
+          <div class="wr-num" id="wr-overall-num" style="color:#2ecc71">—</div>
+        </div>
+        <div class="wr-sub" id="wr-overall-sub">—</div>
+        <div class="wr-trend" id="wr-overall-trend"></div>
+      </div>
+      <div class="wr-box">
+        <div class="wr-lbl">猜大小勝率</div>
+        <div class="wr-ring">
+          <svg viewBox="0 0 64 64" width="64" height="64">
+            <circle class="track" cx="32" cy="32" r="28"/>
+            <circle class="fill" id="wr-bs-ring" cx="32" cy="32" r="28" stroke="#3498db" stroke-dasharray="175.9" stroke-dashoffset="175.9"/>
+          </svg>
+          <div class="wr-num" id="wr-bs-num" style="color:#3498db">—</div>
+        </div>
+        <div class="wr-sub" id="wr-bs-sub">—</div>
+        <div class="wr-trend" id="wr-bs-trend"></div>
+      </div>
+      <div class="wr-box">
+        <div class="wr-lbl">猜單雙勝率</div>
+        <div class="wr-ring">
+          <svg viewBox="0 0 64 64" width="64" height="64">
+            <circle class="track" cx="32" cy="32" r="28"/>
+            <circle class="fill" id="wr-oe-ring" cx="32" cy="32" r="28" stroke="#f39c12" stroke-dasharray="175.9" stroke-dashoffset="175.9"/>
+          </svg>
+          <div class="wr-num" id="wr-oe-num" style="color:#f39c12">—</div>
+        </div>
+        <div class="wr-sub" id="wr-oe-sub">—</div>
+        <div class="wr-trend" id="wr-oe-trend"></div>
+      </div>
+    </div>
+  </div>
 
   <div class="card">
     <div class="card-title">⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐ 今日10星推薦
@@ -203,6 +257,31 @@ async function load() {
 
     document.getElementById('update-info').textContent =
       `資料期數：${d.total_draws} 期 · 最近更新：${d.latest_time || '—'}`;
+
+    // 24小時勝率
+    const wr = d.winrate;
+    if (wr) {
+      function setRing(ringId, numId, subId, trendId, pct, hits, total, color, yest) {
+        const circ = 175.9;
+        const offset = circ * (1 - pct / 100);
+        document.getElementById(ringId).style.strokeDashoffset = offset;
+        document.getElementById(numId).textContent = pct + '%';
+        document.getElementById(subId).textContent = `${total}期中 ${hits}期命中`;
+        if (yest !== null && yest !== undefined) {
+          const diff = pct - yest;
+          const el = document.getElementById(trendId);
+          el.textContent = (diff >= 0 ? '▲ +' : '▼ ') + diff + '% 較昨日';
+          el.style.color = diff >= 0 ? '#2ecc71' : '#e74c3c';
+        }
+      }
+      const yest = wr.yesterday;
+      setRing('wr-overall-ring','wr-overall-num','wr-overall-sub','wr-overall-trend',
+        wr.overall, wr.bs_hits+wr.oe_hits, wr.total*2, '#2ecc71', yest?.overall);
+      setRing('wr-bs-ring','wr-bs-num','wr-bs-sub','wr-bs-trend',
+        wr.bigsmall, wr.bs_hits, wr.total, '#3498db', yest?.bigsmall);
+      setRing('wr-oe-ring','wr-oe-num','wr-oe-sub','wr-oe-trend',
+        wr.oddeven, wr.oe_hits, wr.total, '#f39c12', yest?.oddeven);
+    }
 
     document.getElementById('overlay').style.display = 'none';
   } catch(e) {
