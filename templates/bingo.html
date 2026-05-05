@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bingo Bingo 分析</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --dark: #0f0f1a; --card: #1a1a2e; --gold: #f39c12;
+    --red: #e74c3c; --green: #2ecc71; --blue: #3498db;
+    --muted: #888; --text: #e0e0e0;
+  }
+  body { font-family: -apple-system, "Segoe UI", sans-serif; background: var(--dark); color: var(--text); min-height: 100vh; padding-bottom: 40px; }
+
+  /* nav */
+  .topbar { background: #0a0a1a; text-align: left; padding: 6px 16px; }
+  .topbar a { font-size: 0.78rem; color: #888; text-decoration: none; padding: 4px 12px; border: 1px solid #33333388; border-radius: 99px; }
+  .topbar a:hover { color: #ccc; }
+
+  header { background: linear-gradient(135deg, #b8860b 0%, #8b6914 100%); padding: 20px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,.4); }
+  header h1 { font-size: 1.6rem; letter-spacing: 2px; }
+  header p  { font-size: .82rem; opacity: .8; margin-top: 4px; }
+
+  .container { max-width: 600px; margin: 0 auto; padding: 0 16px; }
+
+  .card { background: var(--card); border-radius: 12px; padding: 18px; margin-top: 16px; }
+  .card-title { font-size: .88rem; color: var(--muted); margin-bottom: 14px; font-weight: 600; letter-spacing: .05em; }
+
+  /* loading */
+  #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.8); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 999; }
+  .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top-color: var(--gold); border-radius: 50%; animation: spin .8s linear infinite; margin-bottom: 14px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #overlay p { color: #aaa; font-size: .9rem; }
+
+  /* 10星推薦 */
+  .top10-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+  .t-ball { width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(135deg, #c0392b, #e74c3c); display: flex; align-items: center; justify-content: center; font-size: 1rem; font-weight: 800; color: #fff; box-shadow: 0 0 10px #e74c3c44; }
+  .top-model-tag { display: inline-block; font-size: .68rem; padding: 2px 9px; border-radius: 99px; background: #f39c1222; color: var(--gold); margin-left: 8px; vertical-align: middle; }
+
+  /* 猜大小/單雙 */
+  .guess-row { display: flex; gap: 10px; }
+  .guess-box { flex: 1; border-radius: 10px; padding: 14px 10px; text-align: center; }
+  .guess-box .lbl { font-size: .7rem; color: var(--muted); margin-bottom: 5px; }
+  .guess-box .ans { font-size: 1.5rem; font-weight: 800; }
+  .guess-box .conf-txt { font-size: .7rem; margin-top: 4px; }
+  .guess-box .sub { font-size: .65rem; color: #777; margin-top: 3px; }
+  .gb-small { background: #2a1010; border: 2px solid #e74c3c55; }
+  .gb-big   { background: #10102a; border: 2px solid #3498db55; }
+  .gb-odd   { background: #102a10; border: 2px solid #2ecc7155; }
+  .gb-even  { background: #1a102a; border: 2px solid #9b59b655; }
+
+  /* 模型機率 */
+  .model-row { display: flex; align-items: center; margin-bottom: 8px; border-radius: 8px; padding: 5px 6px; }
+  .model-lbl { width: 82px; font-size: .82rem; font-weight: 600; }
+  .model-lbl span { font-size: .66rem; color: var(--muted); font-weight: 400; display: block; }
+  .bar-wrap { flex: 1; background: var(--dark); border-radius: 99px; height: 9px; margin: 0 10px; overflow: hidden; }
+  .bar { height: 100%; border-radius: 99px; }
+  .pct { width: 34px; text-align: right; font-size: .82rem; }
+  .c-A { background: #e74c3c; } .c-B { background: #3498db; } .c-C { background: #2ecc71; }
+  .c-D { background: #f39c12; } .c-E { background: #9b59b6; } .c-F { background: #1abc9c; }
+
+  /* 熱力圖 */
+  .heatmap { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-top: 8px; }
+  .hm-cell { border-radius: 5px; padding: 3px 1px; text-align: center; }
+  .hm-num { display: block; font-size: .75rem; font-weight: 700; }
+  .hm-pct { display: block; font-size: .55rem; opacity: .85; margin-top: 1px; }
+  .legend { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: .7rem; color: var(--muted); }
+  .legend-bar { flex: 1; height: 5px; border-radius: 99px; background: linear-gradient(to right, #141452, #2980b9, #e74c3c); }
+
+  .notice { font-size: .75rem; color: var(--muted); margin-top: 14px; padding: 10px; background: #ffffff08; border-radius: 8px; line-height: 1.6; }
+  .update-info { font-size: .72rem; color: var(--muted); text-align: center; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<div id="overlay"><div class="spinner"></div><p id="overlay-txt">載入中…</p></div>
+
+<div class="topbar"><a href="/">← 今彩539</a></div>
+
+<header>
+  <h1>🎲 Bingo Bingo</h1>
+  <p>多模型分析 · 號碼機率 · 每5分鐘更新</p>
+</header>
+
+<div class="container">
+
+  <div class="card">
+    <div class="card-title">⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐ 今日10星推薦
+      <span class="top-model-tag" id="top-model-tag">—</span>
+    </div>
+    <div class="top10-grid" id="top10-grid">—</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">⚡ 綜合推薦</div>
+    <div class="guess-row">
+      <div class="guess-box gb-small" id="gb-bs">
+        <div class="lbl">猜大小</div>
+        <div class="ans" id="ans-bs">—</div>
+        <div class="conf-txt" id="conf-bs">—</div>
+        <div class="sub" id="sub-bs">—</div>
+      </div>
+      <div class="guess-box gb-odd" id="gb-oe">
+        <div class="lbl">猜單雙</div>
+        <div class="ans" id="ans-oe">—</div>
+        <div class="conf-txt" id="conf-oe">—</div>
+        <div class="sub" id="sub-oe">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📊 今日模型機率</div>
+    <div id="model-bars">—</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🌡️ 號碼出現機率</div>
+    <div class="heatmap" id="heatmap"></div>
+    <div class="legend"><span>機率低</span><div class="legend-bar"></div><span>機率高</span></div>
+    <p class="update-info" id="update-info">—</p>
+  </div>
+
+  <div class="notice">⚠️ 彩券開獎為獨立隨機事件，以上為統計分析結果，請理性購買。</div>
+</div>
+
+<script>
+const MODEL_META = {
+  A:{name:'A 奇數偏重', cls:'c-A'}, B:{name:'B 偶數偏重', cls:'c-B'},
+  C:{name:'C 連號密集', cls:'c-C'}, D:{name:'D 號碼重複', cls:'c-D'},
+  E:{name:'E 低區偏重', cls:'c-E'}, F:{name:'F 高區偏重', cls:'c-F'},
+};
+
+function heatColor(t) {
+  if (t < 0.33) {
+    const s = t/0.33;
+    return {bg:`rgb(${Math.round(20+s*30)},${Math.round(20+s*60)},${Math.round(80+s*120)})`, txt:'#aaa'};
+  } else if (t < 0.66) {
+    const s = (t-0.33)/0.33;
+    return {bg:`rgb(${Math.round(50+s*180)},${Math.round(80+s*60)},${Math.round(200-s*150)})`, txt:'#fff'};
+  } else {
+    const s = (t-0.66)/0.34;
+    return {bg:`rgb(230,${Math.round(140-s*110)},${Math.round(50-s*40)})`, txt:'#fff'};
+  }
+}
+
+async function load() {
+  try {
+    const r = await fetch('/api/bingo/stats');
+    const d = await r.json();
+    if (!d.ok) { document.getElementById('overlay-txt').textContent = d.msg || '資料錯誤'; return; }
+
+    // 10星
+    const top10 = d.top10;
+    document.getElementById('top10-grid').innerHTML = top10.map(x =>
+      `<div class="t-ball">${String(x.num).padStart(2,'0')}</div>`
+    ).join('');
+
+    // 最強模型
+    const probs = d.probs;
+    const topKey = Object.entries(probs).sort((a,b)=>b[1]-a[1])[0];
+    document.getElementById('top-model-tag').textContent =
+      `主力：${MODEL_META[topKey[0]].name.slice(2)} ${topKey[1]}%`;
+
+    // 猜大小
+    const bs = d.bigsmall;
+    const bsBox = document.getElementById('gb-bs');
+    bsBox.className = `guess-box ${bs.answer==='大' ? 'gb-big':'gb-small'}`;
+    document.getElementById('ans-bs').textContent = bs.answer;
+    document.getElementById('conf-bs').textContent = `信心度 ${bs.conf}%`;
+    document.getElementById('sub-bs').textContent = `大 ${bs.big}% · 小 ${bs.small}%`;
+
+    // 猜單雙
+    const oe = d.oddeven;
+    const oeBox = document.getElementById('gb-oe');
+    oeBox.className = `guess-box ${oe.answer==='單' ? 'gb-odd':'gb-even'}`;
+    document.getElementById('ans-oe').textContent = oe.answer;
+    document.getElementById('conf-oe').textContent = `信心度 ${oe.conf}%`;
+    document.getElementById('sub-oe').textContent = `單 ${oe.odd}% · 雙 ${oe.even}%`;
+
+    // 模型機率
+    document.getElementById('model-bars').innerHTML = Object.entries(probs)
+      .sort((a,b)=>b[1]-a[1])
+      .map(([k,v]) => `
+        <div class="model-row">
+          <div class="model-lbl">${MODEL_META[k].name}</div>
+          <div class="bar-wrap"><div class="bar ${MODEL_META[k].cls}" style="width:${v}%"></div></div>
+          <div class="pct">${v}%</div>
+        </div>`).join('');
+
+    // 熱力圖
+    const nums = d.num_probs;
+    const vals = nums.map(x=>x.pct);
+    const mn = Math.min(...vals), mx = Math.max(...vals);
+    document.getElementById('heatmap').innerHTML = nums.map(x => {
+      const {bg, txt} = heatColor((x.pct-mn)/(mx-mn||1));
+      return `<div class="hm-cell" style="background:${bg};color:${txt}">
+        <span class="hm-num">${String(x.num).padStart(2,'0')}</span>
+        <span class="hm-pct">${x.pct}%</span>
+      </div>`;
+    }).join('');
+
+    document.getElementById('update-info').textContent =
+      `資料期數：${d.total_draws} 期 · 最近更新：${d.latest_time || '—'}`;
+
+    document.getElementById('overlay').style.display = 'none';
+  } catch(e) {
+    document.getElementById('overlay-txt').textContent = '載入失敗，請稍後重試';
+  }
+}
+
+load();
+</script>
+</body>
+</html>

@@ -9,6 +9,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 import core
 import learner
+import bingo_core
 
 app = Flask(__name__)
 
@@ -137,6 +138,54 @@ def api_learn_history():
     return jsonify(learner.get_summary())
 
 
+# ── Bingo ─────────────────────────────────────────────────────────────────────
+
+@app.route("/bingo")
+def bingo_index():
+    return render_template("bingo.html")
+
+
+@app.route("/api/bingo/stats")
+def api_bingo_stats():
+    df = bingo_core.load_data()
+    if df is None or df.empty:
+        # 首次自動初始化
+        try:
+            df = bingo_core.init_data()
+        except Exception as e:
+            return jsonify({"ok": False, "msg": f"資料初始化失敗：{e}"})
+    if df is None or df.empty:
+        return jsonify({"ok": False, "msg": "尚無資料"})
+
+    probs     = bingo_core.model_probs(df)
+    np_list   = bingo_core.num_probs(df, probs)
+    t10       = bingo_core.top10(np_list)
+    bs        = bingo_core.guess_bigsmall(np_list)
+    oe        = bingo_core.guess_oddeven(np_list)
+    latest    = df.iloc[-1]
+    latest_time = str(latest.get("time", "")) if "time" in latest else ""
+
+    return jsonify({
+        "ok":          True,
+        "total_draws": len(df),
+        "latest_time": latest_time,
+        "probs":       probs,
+        "num_probs":   np_list,
+        "top10":       t10,
+        "bigsmall":    bs,
+        "oddeven":     oe,
+    })
+
+
+@app.route("/api/bingo/update", methods=["POST"])
+def api_bingo_update():
+    try:
+        df, updated = bingo_core.update_latest()
+        return jsonify({"ok": True, "updated": updated, "total": len(df)})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
 def _auto_update():
     df = core.load_data()
     if df is None:
@@ -149,8 +198,16 @@ def _auto_update():
         pass
 
 
+def _bingo_auto_update():
+    try:
+        bingo_core.update_latest()
+    except Exception:
+        pass
+
+
 scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
 scheduler.add_job(_auto_update, "cron", hour=21, minute=30)
+scheduler.add_job(_bingo_auto_update, "interval", minutes=5)
 scheduler.start()
 
 
