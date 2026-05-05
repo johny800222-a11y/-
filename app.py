@@ -5,6 +5,8 @@
 import json
 import threading
 from flask import Flask, jsonify, render_template
+from apscheduler.schedulers.background import BackgroundScheduler
+import pytz
 import core
 import learner
 
@@ -133,6 +135,23 @@ def api_recommend():
 @app.route("/api/learn/history")
 def api_learn_history():
     return jsonify(learner.get_summary())
+
+
+def _auto_update():
+    df = core.load_data()
+    if df is None:
+        return
+    try:
+        df, updated = core.update_latest()
+        if updated:
+            _get_or_generate_rec(df)
+    except Exception:
+        pass
+
+
+scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
+scheduler.add_job(_auto_update, "cron", hour=21, minute=30)
+scheduler.start()
 
 
 if __name__ == "__main__":
