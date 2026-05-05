@@ -122,6 +122,9 @@ def recommend_best(df: pd.DataFrame, learn_weights: dict[int, float] | None = No
         # 近50期遺漏越多 → 補正越大（最高 1.5 倍）
         miss_bonus = 1.0 + 0.5 * max(0, avg_recent - recent50.get(n, 0)) / avg_recent
         w *= miss_bonus
+        # 連號傾向加成：相鄰號碼在近50期出現越多，本號權重越高
+        adj = recent50.get(n - 1, 0) + recent50.get(n + 1, 0)
+        w *= (1.0 + 0.3 * adj / max(avg_recent, 1))
         weights.append(max(w, 0.01))
 
     for _ in range(50000):
