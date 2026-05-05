@@ -174,7 +174,10 @@ def api_bingo_stats():
     t10       = bingo_core.top10(np_list)
     bs        = bingo_core.guess_bigsmall(np_list)
     oe        = bingo_core.guess_oddeven(np_list)
-    wr        = _get_winrate(df)
+    try:
+        wr = _get_winrate(df)
+    except Exception as e:
+        wr = {"error": str(e)}
     latest    = df.iloc[-1]
     latest_time = str(latest.get("time", "")) if "time" in latest else ""
 
