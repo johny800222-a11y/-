@@ -189,6 +189,7 @@ def update_latest() -> tuple[pd.DataFrame, bool]:
         df = new_df.drop_duplicates("period").sort_values("datetime").reset_index(drop=True)
         updated = True
     else:
+        existing["datetime"] = pd.to_datetime(existing.get("datetime"), errors="coerce")
         df = pd.concat([existing, new_df]).drop_duplicates("period").sort_values("datetime").reset_index(drop=True)
         updated = len(df) > len(existing)
 
