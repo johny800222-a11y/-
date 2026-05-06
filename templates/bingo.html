@@ -33,10 +33,35 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   #overlay p { color: #aaa; font-size: .9rem; }
 
+  /* 推薦輪播 */
+  .pick-carousel-wrap { overflow: hidden; }
+  .pick-carousel {
+    display: flex;
+    transition: transform 0.3s ease;
+  }
+  .pick-slide { min-width: 100%; }
+
+  /* 輪播指示點 */
+  .carousel-dots { display: flex; justify-content: center; gap: 6px; margin-top: 10px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #333; transition: background 0.2s; cursor: pointer; }
+  .dot.active { background: var(--gold); }
+
   /* 10星推薦 */
   .top10-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
   .t-ball { width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(135deg, #c0392b, #e74c3c); display: flex; align-items: center; justify-content: center; font-size: 1rem; font-weight: 800; color: #fff; box-shadow: 0 0 10px #e74c3c44; }
   .top-model-tag { display: inline-block; font-size: .68rem; padding: 2px 9px; border-radius: 99px; background: #f39c1222; color: var(--gold); margin-left: 8px; vertical-align: middle; }
+
+  /* 6星/9星球 */
+  .pick-nums-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .ball-six { width: 46px; height: 46px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #f5c842, #e67e22); color: #1a0a00; font-size: .95rem; font-weight: 800; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(243,156,18,.4); }
+  .ball-ext { width: 46px; height: 46px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #c39bd3, #8e44ad); color: #fff; font-size: .95rem; font-weight: 800; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(155,89,182,.4); }
+  .pick-score-row { display: flex; gap: 8px; }
+  .pick-score-chip { flex: 1; background: rgba(255,255,255,.05); border-radius: 8px; padding: 7px; text-align: center; }
+  .pick-score-chip .ps-lbl { font-size: .62rem; color: #888; margin-bottom: 3px; }
+  .pick-score-chip .ps-val { font-size: .9rem; font-weight: 700; }
+  .ps-heat .ps-val { color: var(--gold); }
+  .ps-pair .ps-val { color: var(--blue); }
+  .ps-cov  .ps-val { color: var(--green); }
 
   /* 猜大小/單雙 */
   .guess-row { display: flex; gap: 10px; }
@@ -59,6 +84,14 @@
   .pct { width: 34px; text-align: right; font-size: .82rem; }
   .c-A { background: #e74c3c; } .c-B { background: #3498db; } .c-C { background: #2ecc71; }
   .c-D { background: #f39c12; } .c-E { background: #9b59b6; } .c-F { background: #1abc9c; }
+
+  /* 強力關聯對 */
+  .pair-list { display: flex; flex-direction: column; gap: 8px; }
+  .pair-item { display: flex; align-items: center; gap: 10px; font-size: .82rem; }
+  .pair-nums { color: #3498db; font-weight: 700; min-width: 64px; }
+  .pair-bar-bg { flex: 1; height: 5px; background: rgba(255,255,255,.08); border-radius: 3px; }
+  .pair-bar    { height: 5px; background: #3498db; border-radius: 3px; transition: width .4s; }
+  .pair-count  { color: #666; font-size: .7rem; min-width: 30px; text-align: right; }
 
   /* 熱力圖 */
   .heatmap { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-top: 8px; }
@@ -98,7 +131,7 @@
 <div class="container">
 
   <div class="card">
-    <div class="card-title">📈 24小時勝率</div>
+    <div class="card-title">📈 今日勝率（最新30期）</div>
     <div class="wr-row">
       <div class="wr-box">
         <div class="wr-lbl">整體勝率</div>
@@ -139,11 +172,47 @@
     </div>
   </div>
 
+  <div class="card" id="pair-card" style="display:none">
+    <div class="card-title">🔗 強力關聯對（共現次數）</div>
+    <div class="pair-list" id="pair-list"></div>
+  </div>
+
+  <!-- 推薦輪播卡 -->
   <div class="card">
-    <div class="card-title">⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐ 今日10星推薦
+    <div class="card-title" id="pick-slide-title">⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐ 今日10星推薦
       <span class="top-model-tag" id="top-model-tag">—</span>
     </div>
-    <div class="top10-grid" id="top10-grid">—</div>
+    <div class="pick-carousel-wrap" id="carousel-wrap">
+      <div class="pick-carousel" id="pick-carousel">
+        <!-- slide 0: 10星 -->
+        <div class="pick-slide">
+          <div class="top10-grid" id="top10-grid">—</div>
+        </div>
+        <!-- slide 1: 6星 -->
+        <div class="pick-slide" id="slide-six">
+          <div class="pick-nums-row" id="six-nums"></div>
+          <div class="pick-score-row">
+            <div class="pick-score-chip ps-heat"><div class="ps-lbl">熱度分</div><div class="ps-val" id="six-heat">—</div></div>
+            <div class="pick-score-chip ps-pair"><div class="ps-lbl">關聯分</div><div class="ps-val" id="six-pair">—</div></div>
+            <div class="pick-score-chip ps-cov"><div class="ps-lbl">區域覆蓋</div><div class="ps-val" id="six-cov">均衡</div></div>
+          </div>
+        </div>
+        <!-- slide 2: 9星 -->
+        <div class="pick-slide" id="slide-nine">
+          <div class="pick-nums-row" id="nine-nums"></div>
+          <div class="pick-score-row">
+            <div class="pick-score-chip ps-heat"><div class="ps-lbl">熱度分</div><div class="ps-val" id="nine-heat">—</div></div>
+            <div class="pick-score-chip ps-pair"><div class="ps-lbl">關聯分</div><div class="ps-val" id="nine-pair">—</div></div>
+            <div class="pick-score-chip ps-cov"><div class="ps-lbl">區域覆蓋</div><div class="ps-val" id="nine-cov">廣泛</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="carousel-dots">
+      <div class="dot active" onclick="goSlide(0)"></div>
+      <div class="dot" onclick="goSlide(1)"></div>
+      <div class="dot" onclick="goSlide(2)"></div>
+    </div>
   </div>
 
   <div class="card">
@@ -180,6 +249,42 @@
 </div>
 
 <script>
+// ── 輪播 ──
+const SLIDE_TITLES = [
+  () => `⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐ 今日10星推薦<span class="top-model-tag" id="top-model-tag">${document.getElementById('top-model-tag')?.textContent||'—'}</span>`,
+  () => `★★★★★★ 6星精選<span class="top-model-tag">高頻 + 強關聯</span>`,
+  () => `★★★★★★★★★ 9星擴展<span class="top-model-tag">6星 + 次關聯擴展</span>`,
+];
+let _currentSlide = 0;
+function goSlide(idx) {
+  _currentSlide = idx;
+  document.getElementById('pick-carousel').style.transform = `translateX(-${idx * 100}%)`;
+  document.querySelectorAll('.dot').forEach((d,i) => d.classList.toggle('active', i===idx));
+  const titleEl = document.getElementById('pick-slide-title');
+  if (idx === 0) {
+    titleEl.innerHTML = `⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐ 今日10星推薦 <span class="top-model-tag" id="top-model-tag">${_topModelText}</span>`;
+  } else if (idx === 1) {
+    titleEl.innerHTML = `★★★★★★ 6星精選 <span class="top-model-tag">高頻 + 強關聯</span>`;
+  } else {
+    titleEl.innerHTML = `★★★★★★★★★ 9星擴展 <span class="top-model-tag">6星 + 次關聯擴展</span>`;
+  }
+}
+// 觸控左右滑
+(function(){
+  let startX = 0;
+  const wrap = document.getElementById('carousel-wrap');
+  if (!wrap) return;
+  wrap.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, {passive:true});
+  wrap.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - startX;
+    if (Math.abs(dx) < 40) return;
+    const next = dx < 0 ? Math.min(_currentSlide+1, 2) : Math.max(_currentSlide-1, 0);
+    goSlide(next);
+  }, {passive:true});
+})();
+
+let _topModelText = '—';
+
 const MODEL_META = {
   A:{name:'A 奇數偏重', cls:'c-A'}, B:{name:'B 偶數偏重', cls:'c-B'},
   C:{name:'C 連號密集', cls:'c-C'}, D:{name:'D 號碼重複', cls:'c-D'},
@@ -214,8 +319,8 @@ async function load() {
     // 最強模型
     const probs = d.probs;
     const topKey = Object.entries(probs).sort((a,b)=>b[1]-a[1])[0];
-    document.getElementById('top-model-tag').textContent =
-      `主力：${MODEL_META[topKey[0]].name.slice(2)} ${topKey[1]}%`;
+    _topModelText = `主力：${MODEL_META[topKey[0]].name.slice(2)} ${topKey[1]}%`;
+    document.getElementById('top-model-tag').textContent = _topModelText;
 
     // 猜大小
     const bs = d.bigsmall;
@@ -284,12 +389,52 @@ async function load() {
     }
 
     document.getElementById('overlay').style.display = 'none';
+
+    loadPick(); // 智慧選號 + 關聯對（非阻塞）
   } catch(e) {
     document.getElementById('overlay-txt').textContent = '載入失敗，請稍後重試';
   }
 }
 
+async function loadPick() {
+  try {
+    const r = await fetch('/api/bingo/pick');
+    const d = await r.json();
+    if (!d.ok) return;
+
+    // 6星
+    const sixEl = document.getElementById('six-nums');
+    sixEl.innerHTML = d.six.map(n =>
+      `<div class="ball-six">${String(n).padStart(2,'0')}</div>`
+    ).join('');
+    document.getElementById('six-heat').textContent = d.scores.six_heat;
+    document.getElementById('six-pair').textContent = d.scores.six_pair;
+
+    // 9星
+    const sixSet = new Set(d.six);
+    const nineEl = document.getElementById('nine-nums');
+    nineEl.innerHTML = d.nine.map(n =>
+      `<div class="${sixSet.has(n)?'ball-six':'ball-ext'}">${String(n).padStart(2,'0')}</div>`
+    ).join('');
+    document.getElementById('nine-heat').textContent = d.scores.nine_heat;
+    document.getElementById('nine-pair').textContent = d.scores.nine_pair;
+
+    // 強力關聯對
+    if (d.top_pairs && d.top_pairs.length) {
+      const maxCnt = d.top_pairs[0].cnt;
+      document.getElementById('pair-list').innerHTML = d.top_pairs.map(p => `
+        <div class="pair-item">
+          <span class="pair-nums">${String(p.a).padStart(2,'0')} ↔ ${String(p.b).padStart(2,'0')}</span>
+          <div class="pair-bar-bg"><div class="pair-bar" style="width:${p.pct}%"></div></div>
+          <span class="pair-count">${p.cnt}次</span>
+        </div>`).join('');
+      document.getElementById('pair-card').style.display = '';
+    }
+  } catch(e) {}
+}
+
 load();
+setInterval(load, 5 * 60 * 1000); // 每5分鐘自動刷新
 </script>
 </body>
 </html>

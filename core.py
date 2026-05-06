@@ -14,7 +14,8 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 
-DATA_FILE   = Path(__file__).parent / "539_history.csv"
+_DATA_DIR   = Path("/data") if Path("/data").exists() else Path(__file__).parent
+DATA_FILE   = _DATA_DIR / "539_history.csv"
 BASE_URL    = "https://www.pilio.idv.tw/lto539/list539BIG.asp"
 TOTAL_PAGES = 59
 SLEEP_SEC   = 0.4

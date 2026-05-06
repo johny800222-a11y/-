@@ -10,6 +10,7 @@ import pytz
 import core
 import learner
 import bingo_core
+import bingo_tracker
 
 app = Flask(__name__)
 
@@ -18,7 +19,7 @@ _fetch_state = {"running": False, "page": 0, "total": core.TOTAL_PAGES, "error":
 
 # 本期推薦快取：格式 {"draw_date": "2026-05-02", "best": [1,2,3,4,5]}
 # 同一期內不論重新整理幾次，都回傳同一組號碼
-_rec_file = core.DATA_FILE.parent / "current_rec.json"
+_rec_file = core.DATA_FILE.parent / "current_rec.json"  # 與 core.DATA_FILE 同在 /data
 
 
 def _load_rec() -> dict:
@@ -204,6 +205,18 @@ def api_bingo_update():
         return jsonify({"ok": False, "msg": str(e)})
 
 
+@app.route("/api/bingo/pick")
+def api_bingo_pick():
+    df = bingo_core.load_data()
+    if df is None or df.empty:
+        return jsonify({"ok": False, "msg": "尚無資料"})
+    try:
+        result = bingo_core.smart_pick(df)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
 @app.route("/api/bingo/ping")
 def api_bingo_ping():
     """測試 Railway 是否能連到 pilio.idv.tw"""
@@ -212,6 +225,87 @@ def api_bingo_ping():
         r = req.get("https://www.pilio.idv.tw/bingo/list.asp",
                     headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
         return jsonify({"ok": True, "status": r.status_code, "len": len(r.content)})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
+@app.route("/bingo/report")
+def bingo_report():
+    df = bingo_core.load_data()
+    if df is None or df.empty:
+        return "尚無資料", 503
+    text = bingo_tracker.daily_report_text(df)
+    html = bingo_tracker.daily_report_html(df)
+    return f"""<!DOCTYPE html><html><head><meta charset=UTF-8>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Bingo 損益報告</title>
+    <style>body{{background:#0a0a1a;color:#e0e0f0;padding:20px;font-family:monospace}}</style>
+    </head><body>{html}</body></html>"""
+
+
+@app.route("/api/bingo/snapshot/<slot>", methods=["POST"])
+def api_bingo_snapshot(slot):
+    """手動觸發投注快照，slot = 1200 / 1600 / 2000"""
+    labels = {"1200": "12:00", "1600": "16:00", "2000": "20:00"}
+    label = labels.get(slot)
+    if not label:
+        return jsonify({"ok": False, "msg": "slot 需為 1200/1600/2000"})
+    _take_snapshot(label)
+    data = bingo_tracker._load()
+    last = data["snapshots"][-1] if data["snapshots"] else {}
+    return jsonify({"ok": True, "slot": label,
+                    "six": last.get("six"), "nine": last.get("nine"),
+                    "from_period": last.get("from_period")})
+
+
+@app.route("/api/bingo/report")
+def api_bingo_report():
+    df = bingo_core.load_data()
+    if df is None or df.empty:
+        return jsonify({"ok": False, "msg": "尚無資料"})
+    data = bingo_tracker.settle_snapshots(df)
+    return jsonify({"ok": True, **data})
+
+
+@app.route("/api/bingo/pages")
+def api_bingo_pages():
+    """逐頁測試抓取結果"""
+    import requests as req
+    results = []
+    for page in range(1, 6):
+        try:
+            url = f"https://www.pilio.idv.tw/bingo/list.asp?indexpage={page}"
+            r = req.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+            r.encoding = "big5"
+            recs = bingo_core._parse_page(r.text)
+            results.append({"page": page, "status": r.status_code, "count": len(recs),
+                            "first": recs[0]["period"] if recs else None,
+                            "last":  recs[-1]["period"] if recs else None})
+        except Exception as e:
+            results.append({"page": page, "error": str(e)})
+    return jsonify(results)
+
+
+@app.route("/api/bingo/debug")
+def api_bingo_debug():
+    """除錯：直接顯示從網站抓到幾筆、最新 period"""
+    try:
+        import requests as req
+        r = req.get("https://www.pilio.idv.tw/bingo/list.asp",
+                    headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        r.encoding = "big5"
+        recs = bingo_core._parse_page(r.text)
+        df = bingo_core.load_data()
+        existing_periods = set(df["period"].astype(str).tolist()) if df is not None else set()
+        new_periods = [rec["period"] for rec in recs if rec["period"] not in existing_periods]
+        return jsonify({
+            "ok": True,
+            "fetched": len(recs),
+            "new_periods": len(new_periods),
+            "sample_periods": [rec["period"] for rec in recs[:3]],
+            "existing_total": len(existing_periods),
+            "http_status": r.status_code,
+        })
     except Exception as e:
         return jsonify({"ok": False, "msg": str(e)})
 
@@ -230,15 +324,57 @@ def _auto_update():
 
 def _bingo_auto_update():
     try:
-        bingo_core.update_latest()
+        df = bingo_core.load_data()
+        if df is None or df.empty or len(df) < 400:
+            bingo_core.init_data()
+        else:
+            df, _ = bingo_core.update_latest()
+        # 順帶結算未完成的快照
+        df2 = bingo_core.load_data()
+        if df2 is not None and not df2.empty:
+            bingo_tracker.settle_snapshots(df2)
+    except Exception:
+        pass
+
+
+def _take_snapshot(slot_label: str):
+    """在指定時段擷取推薦並記錄投注快照"""
+    try:
+        df = bingo_core.load_data()
+        if df is None or df.empty:
+            return
+        pick = bingo_core.smart_pick(df)
+        latest_period = str(int(float(df["period"].iloc[-1])))
+        bingo_tracker.save_snapshot(slot_label, pick["six"], pick["nine"], latest_period)
+    except Exception:
+        pass
+
+
+def _send_morning_report():
+    """早上9點產生並寄出每日報告"""
+    try:
+        df = bingo_core.load_data()
+        if df is None or df.empty:
+            return
+        html = bingo_tracker.daily_report_html(df)
+        bingo_tracker.send_daily_email(html)
     except Exception:
         pass
 
 
 scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
-scheduler.add_job(_auto_update, "cron", hour=21, minute=30)
+scheduler.add_job(_auto_update,       "cron", hour=21, minute=30)
 scheduler.add_job(_bingo_auto_update, "interval", minutes=5)
+# 每日投注快照
+scheduler.add_job(_take_snapshot, "cron", hour=12, minute=0,  args=["12:00"])
+scheduler.add_job(_take_snapshot, "cron", hour=16, minute=0,  args=["16:00"])
+scheduler.add_job(_take_snapshot, "cron", hour=20, minute=0,  args=["20:00"])
+# 每日早上9點報告
+scheduler.add_job(_send_morning_report, "cron", hour=9, minute=0)
 scheduler.start()
+
+# 啟動時若 Bingo 無資料則自動初始化（背景執行，不阻塞啟動）
+threading.Thread(target=_bingo_auto_update, daemon=True).start()
 
 
 if __name__ == "__main__":
