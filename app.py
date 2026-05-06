@@ -376,6 +376,16 @@ scheduler.start()
 # 啟動時若 Bingo 無資料則自動初始化（背景執行，不阻塞啟動）
 threading.Thread(target=_bingo_auto_update, daemon=True).start()
 
+# 啟動時若 539 無資料則自動全量抓取
+def _539_auto_init():
+    if core.load_data() is None:
+        try:
+            core.fetch_all()
+        except Exception:
+            pass
+
+threading.Thread(target=_539_auto_init, daemon=True).start()
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", debug=False, port=5539)
