@@ -246,10 +246,10 @@ def bingo_report():
 @app.route("/api/bingo/snapshot/<slot>", methods=["POST"])
 def api_bingo_snapshot(slot):
     """手動觸發投注快照，slot = 1200 / 1600 / 2000"""
-    labels = {"1200": "12:00", "1600": "16:00", "2000": "20:00"}
+    labels = {"1200": "12:00", "1600": "16:00", "1700": "17:00", "2000": "20:00"}
     label = labels.get(slot)
     if not label:
-        return jsonify({"ok": False, "msg": "slot 需為 1200/1600/2000"})
+        return jsonify({"ok": False, "msg": "slot 需為 1200/1600/1700/2000"})
     _take_snapshot(label)
     data = bingo_tracker._load()
     last = data["snapshots"][-1] if data["snapshots"] else {}
