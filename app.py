@@ -344,7 +344,7 @@ def _take_snapshot(slot_label: str):
         if df is None or df.empty:
             return
         pick = bingo_core.smart_pick(df)
-        latest_period = str(int(float(df["period"].iloc[-1])))
+        latest_period = str(int(df["period"].astype(float).max()))
         bingo_tracker.save_snapshot(slot_label, pick["six"], pick["nine"], latest_period)
     except Exception:
         pass
