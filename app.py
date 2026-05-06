@@ -258,6 +258,28 @@ def api_bingo_snapshot(slot):
                     "from_period": last.get("from_period")})
 
 
+@app.route("/api/bingo/reset", methods=["POST"])
+def api_bingo_reset():
+    """保留最新一筆快照，其餘全部清除，餘額重置為1000"""
+    data = bingo_tracker._load()
+    if data["snapshots"]:
+        latest = max(data["snapshots"], key=lambda s: s.get("saved_at", ""))
+        latest["settled"] = False
+        latest["results"] = []
+        latest.pop("bet", None)
+        latest.pop("win", None)
+        latest.pop("net", None)
+        data["snapshots"] = [latest]
+    else:
+        data["snapshots"] = []
+    data["balance"]   = bingo_tracker.STARTING_BALANCE
+    data["total_bet"] = 0
+    data["total_win"] = 0
+    data["daily_logs"] = []
+    bingo_tracker._save(data)
+    return jsonify({"ok": True, "kept": data["snapshots"][0].get("slot") if data["snapshots"] else None})
+
+
 @app.route("/api/bingo/report")
 def api_bingo_report():
     df = bingo_core.load_data()
