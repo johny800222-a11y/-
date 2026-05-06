@@ -11,6 +11,7 @@ import core
 import learner
 import bingo_core
 import bingo_tracker
+import bingo_learner
 
 app = Flask(__name__)
 
@@ -360,24 +361,31 @@ def _bingo_auto_update():
 
 
 def _take_snapshot(slot_label: str):
-    """在指定時段擷取推薦並記錄投注快照"""
+    """在指定時段擷取推薦並記錄投注快照（使用時段專屬學習權重）"""
     try:
         df = bingo_core.load_data()
         if df is None or df.empty:
             return
-        pick = bingo_core.smart_pick(df)
+        # 取時段專屬學習權重，讓推薦更精準
+        slot_weights = bingo_learner.get_weights_for_slot(slot_label)
+        pick = bingo_core.smart_pick(df, learn_weights=slot_weights)
         latest_period = str(int(df["period"].astype(float).max()))
         bingo_tracker.save_snapshot(slot_label, pick["six"], pick["nine"], latest_period)
     except Exception:
         pass
 
 
-def _send_morning_report():
-    """早上9點產生並寄出每日報告"""
+def _morning_routine():
+    """早上9點：迭代更新演算法權重 + 產生每日報告"""
     try:
         df = bingo_core.load_data()
         if df is None or df.empty:
             return
+        # 1. 先結算昨日快照
+        data = bingo_tracker.settle_snapshots(df)
+        # 2. 根據昨日結果 + 最新開獎資料，迭代更新學習權重
+        bingo_learner.daily_update(data, df)
+        # 3. 產生並寄出報告（已設定 SMTP 才寄）
         html = bingo_tracker.daily_report_html(df)
         bingo_tracker.send_daily_email(html)
     except Exception:
@@ -392,7 +400,7 @@ scheduler.add_job(_take_snapshot, "cron", hour=12, minute=0,  args=["12:00"])
 scheduler.add_job(_take_snapshot, "cron", hour=16, minute=0,  args=["16:00"])
 scheduler.add_job(_take_snapshot, "cron", hour=20, minute=0,  args=["20:00"])
 # 每日早上9點報告
-scheduler.add_job(_send_morning_report, "cron", hour=9, minute=0)
+scheduler.add_job(_morning_routine, "cron", hour=9, minute=0)
 scheduler.start()
 
 # 啟動時若 Bingo 無資料則自動初始化（背景執行，不阻塞啟動）

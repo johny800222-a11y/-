@@ -529,7 +529,7 @@ def cooccurrence_matrix(df: pd.DataFrame, window: int = 30) -> dict[tuple[int,in
     return dict(comat)
 
 
-def smart_pick(df: pd.DataFrame, window: int = 30) -> dict:
+def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -> dict:
     """
     回傳智慧選號結果：
     - hot_top10: 熱號 Top 10（含頻次）
@@ -538,6 +538,11 @@ def smart_pick(df: pd.DataFrame, window: int = 30) -> dict:
     - nine: 9星推薦（9個號碼 = 6星 + 3個擴展）
     - scores: 6星/9星的熱度分/關聯分
     """
+    # 若未傳入外部權重，從學習模組取全局權重
+    if learn_weights is None:
+        import bingo_learner
+        learn_weights = bingo_learner.get_weights()
+
     hot = hot_numbers(df, window)
     comat = cooccurrence_matrix(df, window)
 
@@ -551,9 +556,10 @@ def smart_pick(df: pd.DataFrame, window: int = 30) -> dict:
         pair_strength[a] += cnt
         pair_strength[b] += cnt
 
-    # 綜合分數 = 頻次 * 2 + 關聯強度
+    # 綜合分數 = 頻次 * 2 + 關聯強度 × 學習權重
     scores = {
-        n["num"]: n["cnt"] * 2 + pair_strength.get(n["num"], 0)
+        n["num"]: (n["cnt"] * 2 + pair_strength.get(n["num"], 0))
+                  * learn_weights.get(n["num"], 1.0)
         for n in hot
     }
 
