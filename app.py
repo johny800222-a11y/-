@@ -259,6 +259,41 @@ def api_bingo_snapshot(slot):
                     "from_period": last.get("from_period")})
 
 
+@app.route("/api/bingo/patch_1700", methods=["POST"])
+def api_bingo_patch_1700():
+    """一次性補回 2026-05-06 17:00 快照結算記錄"""
+    data = bingo_tracker._load()
+    snap_1700 = {
+        "date": "2026-05-06", "slot": "17:00",
+        "saved_at": "2026-05-06 17:00",
+        "six":  [15, 30, 34, 56, 65, 74],
+        "nine": [15, 30, 34, 41, 56, 60, 64, 65, 74],
+        "from_period": "115025492",
+        "settled": True,
+        "bet": 1000, "win": 100, "net": -900,
+        "results": [
+            {"period":"115025397","six_hits":2,"six_win":0,"nine_hits":3,"nine_win":0},
+            {"period":"115025396","six_hits":2,"six_win":0,"nine_hits":2,"nine_win":0},
+            {"period":"115025395","six_hits":2,"six_win":0,"nine_hits":4,"nine_win":0},
+            {"period":"115025394","six_hits":3,"six_win":0,"nine_hits":4,"nine_win":0},
+            {"period":"115025393","six_hits":0,"six_win":0,"nine_hits":1,"nine_win":0},
+            {"period":"115025392","six_hits":3,"six_win":0,"nine_hits":5,"nine_win":0},
+            {"period":"115025391","six_hits":2,"six_win":0,"nine_hits":2,"nine_win":0},
+            {"period":"115025390","six_hits":2,"six_win":0,"nine_hits":2,"nine_win":0},
+            {"period":"115025389","six_hits":4,"six_win":50,"nine_hits":6,"nine_win":50},
+            {"period":"115025388","six_hits":1,"six_win":0,"nine_hits":2,"nine_win":0},
+        ]
+    }
+    # 插到最前面（按時間順序）
+    data["snapshots"].insert(0, snap_1700)
+    data["balance"]   += 100 - 1000   # win 100, bet 1000 → net -900
+    data["total_bet"] += 1000
+    data["total_win"] += 100
+    bingo_tracker._save(data)
+    return jsonify({"ok": True, "balance": data["balance"],
+                    "total_bet": data["total_bet"], "total_win": data["total_win"]})
+
+
 @app.route("/api/bingo/reset", methods=["POST"])
 def api_bingo_reset():
     """保留最新一筆快照，其餘全部清除，餘額重置為1000"""
