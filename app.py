@@ -444,14 +444,36 @@ def _tw_now() -> str:
     return datetime.now(pytz.timezone("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _539_weekly_learn():
+    """每週一 09:00 對 539 做深度學習迭代"""
+    import traceback
+    try:
+        df = core.load_data()
+        if df is None or df.empty:
+            return
+        # 取最近一期實際開獎，對上週推薦做學習
+        cached = _load_rec()
+        old_best = cached.get("best", [])
+        if old_best:
+            learner.auto_update_from_df(df, old_best, old_best)
+        # 重新產生本期推薦並快取
+        weights = learner.get_weights()
+        best = core.recommend_best(df, weights)
+        latest_date = df["date"].max().strftime("%Y-%m-%d")
+        _save_rec(latest_date, best)
+    except Exception:
+        pass
+
+
 scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
-scheduler.add_job(_auto_update,       "cron", hour=21, minute=30)
-scheduler.add_job(_bingo_auto_update, "interval", minutes=5)
+scheduler.add_job(_auto_update,        "cron", hour=21, minute=30)
+scheduler.add_job(_539_weekly_learn,   "cron", day_of_week="mon", hour=9, minute=0)
+scheduler.add_job(_bingo_auto_update,  "interval", minutes=5)
 # 每日投注快照
 scheduler.add_job(_take_snapshot, "cron", hour=12, minute=0,  args=["12:00"])
 scheduler.add_job(_take_snapshot, "cron", hour=16, minute=0,  args=["16:00"])
 scheduler.add_job(_take_snapshot, "cron", hour=20, minute=0,  args=["20:00"])
-# 每日早上9點報告
+# 每日早上9點 Bingo 學習 + 報告
 scheduler.add_job(_morning_routine, "cron", hour=9, minute=0)
 scheduler.start()
 
