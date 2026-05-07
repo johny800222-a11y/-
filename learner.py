@@ -15,7 +15,8 @@ from datetime import datetime
 
 import pandas as pd
 
-LEARN_FILE  = Path(__file__).parent / "learn_state.json"
+_DATA_DIR  = Path("/data") if Path("/data").exists() else Path(__file__).parent
+LEARN_FILE = _DATA_DIR / "learn_state.json"
 BALL_RANGE  = list(range(1, 40))
 
 # 衰減因子：舊的推薦對權重的影響隨時間遞減
