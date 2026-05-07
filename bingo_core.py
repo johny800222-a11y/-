@@ -543,14 +543,16 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
         import bingo_learner
         learn_weights = bingo_learner.get_weights()
 
-    hot = hot_numbers(df, window)
-    comat = cooccurrence_matrix(df, window)
+    # 使用較大視窗（200期）提高統計穩定性
+    hot = hot_numbers(df, max(window, 200))
+    comat = cooccurrence_matrix(df, max(window, 200))
 
-    # 熱號 Top 10
-    hot_sorted = sorted(hot, key=lambda x: x["cnt"], reverse=True)
+    # 熱號 Top 10（仍用短窗口保留近期趨勢）
+    hot_short = hot_numbers(df, window)
+    hot_sorted = sorted(hot_short, key=lambda x: x["cnt"], reverse=True)
     hot_top10 = hot_sorted[:10]
 
-    # 各號碼的關聯強度（與所有其他號碼的共現總次數）
+    # 各號碼的關聯強度
     pair_strength: dict[int, int] = Counter()
     for (a, b), cnt in comat.items():
         pair_strength[a] += cnt
@@ -563,20 +565,45 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
         for n in hot
     }
 
-    # 6星：綜合分前 6
-    six = sorted(BALL_RANGE, key=lambda n: scores[n], reverse=True)[:6]
+    # ── 區間平衡選號 ──────────────────────────────────────────────
+    # Bingo 1-80 分 4 個區間，每期各區間平均開出約 5 顆
+    # 6星：每區間至少 1 個，共 6 個（配比 2-2-1-1 或 2-1-2-1）
+    # 9星：每區間至少 2 個，共 9 個（配比 3-2-2-2）
+    zones = [range(1, 21), range(21, 41), range(41, 61), range(61, 81)]
+
+    def best_from_zone(z, exclude, n_pick):
+        candidates = sorted(
+            [num for num in z if num not in exclude],
+            key=lambda num: scores.get(num, 0), reverse=True
+        )
+        return candidates[:n_pick]
+
+    # 6星：每區各取 1 個（4個），再從全域補 2 個最高分（不重複）
+    six = []
+    for z in zones:
+        picked = best_from_zone(z, set(six), 1)
+        six.extend(picked)
+    # 補到 6 個：從全域分數最高且未選的號碼補
+    all_ranked = sorted(BALL_RANGE, key=lambda n: scores.get(n, 0), reverse=True)
+    for n in all_ranked:
+        if len(six) >= 6:
+            break
+        if n not in six:
+            six.append(n)
     six_set = set(six)
 
-    # 擴展候選：與六星共現最強的號碼（排除已選）
-    ext_scores: dict[int, int] = Counter()
-    for n in six:
-        for (a, b), cnt in comat.items():
-            partner = b if a == n else (a if b == n else None)
-            if partner and partner not in six_set:
-                ext_scores[partner] += cnt
-
-    ext3 = sorted(ext_scores, key=lambda n: ext_scores[n], reverse=True)[:3]
-    nine = six + ext3
+    # 9星：在 6星基礎上，每區各補 1 個（優先未覆蓋的區間），共 9 個
+    nine = list(six)
+    for z in zones:
+        if len(nine) >= 9:
+            break
+        picked = best_from_zone(z, set(nine), 1)
+        nine.extend(picked)
+    for n in all_ranked:
+        if len(nine) >= 9:
+            break
+        if n not in nine:
+            nine.append(n)
 
     # 評分指標
     hot_avg = sum(x["cnt"] for x in hot) / len(BALL_RANGE)
