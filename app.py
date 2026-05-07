@@ -316,6 +316,13 @@ def api_bingo_reset():
     return jsonify({"ok": True, "kept": data["snapshots"][0].get("slot") if data["snapshots"] else None})
 
 
+@app.route("/api/bingo/learn")
+def api_bingo_learn():
+    """查看 / 手動觸發學習"""
+    summary = bingo_learner.get_summary()
+    return jsonify({"ok": True, "morning_log": _morning_log, **summary})
+
+
 @app.route("/api/bingo/report")
 def api_bingo_report():
     df = bingo_core.load_data()
@@ -410,21 +417,31 @@ def _take_snapshot(slot_label: str):
         pass
 
 
+_morning_log = {"last_run": None, "result": None, "error": None}
+
+
 def _morning_routine():
     """早上9點：迭代更新演算法權重 + 產生每日報告"""
+    import traceback
     try:
         df = bingo_core.load_data()
         if df is None or df.empty:
+            _morning_log.update(last_run=_tw_now(), result=None, error="無開獎資料")
             return
         # 1. 先結算昨日快照
         data = bingo_tracker.settle_snapshots(df)
         # 2. 根據昨日結果 + 最新開獎資料，迭代更新學習權重
-        bingo_learner.daily_update(data, df)
+        result = bingo_learner.daily_update(data, df)
+        _morning_log.update(last_run=_tw_now(), result=result, error=None)
         # 3. 產生並寄出報告（已設定 SMTP 才寄）
         html = bingo_tracker.daily_report_html(df)
         bingo_tracker.send_daily_email(html)
     except Exception:
-        pass
+        _morning_log.update(last_run=_tw_now(), result=None, error=traceback.format_exc())
+
+
+def _tw_now() -> str:
+    return datetime.now(pytz.timezone("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
 
 
 scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
