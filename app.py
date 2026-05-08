@@ -294,6 +294,27 @@ def api_bingo_patch_1700():
                     "total_bet": data["total_bet"], "total_win": data["total_win"]})
 
 
+@app.route("/api/bingo/resettle", methods=["POST"])
+def api_bingo_resettle():
+    """把所有快照標為未結算，重新用正確期數順序結算"""
+    data = bingo_tracker._load()
+    for s in data["snapshots"]:
+        s["settled"] = False
+        s["results"] = []
+        s.pop("bet", None); s.pop("win", None); s.pop("net", None)
+    data["balance"]   = bingo_tracker.STARTING_BALANCE
+    data["total_bet"] = 0
+    data["total_win"] = 0
+    bingo_tracker._save(data)
+    # 立刻重新結算
+    df = bingo_core.load_data()
+    if df is not None:
+        data = bingo_tracker.settle_snapshots(df)
+    return jsonify({"ok": True, "balance": data["balance"],
+                    "total_bet": data["total_bet"], "total_win": data["total_win"],
+                    "settled": sum(1 for s in data["snapshots"] if s["settled"])})
+
+
 @app.route("/api/bingo/reset", methods=["POST"])
 def api_bingo_reset():
     """保留最新一筆快照，其餘全部清除，餘額重置為1000"""
