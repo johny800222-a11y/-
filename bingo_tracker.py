@@ -93,16 +93,17 @@ def settle_snapshots(df):
         if snap["settled"]:
             continue
 
-        # 找 from_period 之後的 10 期
-        all_periods = df["period"].astype(float).astype(int).astype(str).tolist()
-        try:
-            start_idx = all_periods.index(str(int(float(snap["from_period"])))) + 1
-        except ValueError:
-            continue  # 資料尚未包含該期，跳過
+        # 以 period 數值排序，找 from_period 之後的 10 期
+        from_p = int(float(snap["from_period"]))
+        df_sorted = df.copy()
+        df_sorted["_period_int"] = df_sorted["period"].astype(float).astype(int)
+        df_sorted = df_sorted.sort_values("_period_int").reset_index(drop=True)
 
-        target_rows = df.iloc[start_idx: start_idx + PERIODS_PER_SLOT]
-        if len(target_rows) < PERIODS_PER_SLOT:
+        after_df = df_sorted[df_sorted["_period_int"] > from_p]
+        if len(after_df) < PERIODS_PER_SLOT:
             continue  # 不足10期，等下次
+
+        target_rows = after_df.head(PERIODS_PER_SLOT)
 
         slot_bet    = PERIODS_PER_SLOT * (COST_6 + COST_9)
         slot_win    = 0
