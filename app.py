@@ -457,8 +457,24 @@ def _take_snapshot(slot_label: str):
 _morning_log = {"last_run": None, "result": None, "error": None}
 
 
+def _send_telegram(text: str):
+    """傳送 Telegram 訊息"""
+    import os, urllib.request, json as _json
+    token   = os.environ.get("TG_TOKEN", "")
+    chat_id = os.environ.get("TG_CHAT_ID", "")
+    if not token or not chat_id:
+        return
+    url  = f"https://api.telegram.org/bot{token}/sendMessage"
+    data = _json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}).encode()
+    try:
+        urllib.request.urlopen(urllib.request.Request(
+            url, data=data, headers={"Content-Type": "application/json"}), timeout=10)
+    except Exception:
+        pass
+
+
 def _morning_routine():
-    """早上9點：迭代更新演算法權重 + 產生每日報告"""
+    """早上9點：迭代更新演算法權重 + 傳送每日報告到 Telegram"""
     import traceback
     try:
         df = bingo_core.load_data()
@@ -470,7 +486,10 @@ def _morning_routine():
         # 2. 根據昨日結果 + 最新開獎資料，迭代更新學習權重
         result = bingo_learner.daily_update(data, df)
         _morning_log.update(last_run=_tw_now(), result=result, error=None)
-        # 3. 產生並寄出報告（已設定 SMTP 才寄）
+        # 3. 傳送每日報告到 Telegram
+        text = bingo_tracker.daily_report_text(df)
+        _send_telegram(text)
+        # 4. 同時寄 Email（有設定 SMTP 才寄）
         html = bingo_tracker.daily_report_html(df)
         bingo_tracker.send_daily_email(html)
     except Exception:
