@@ -294,6 +294,22 @@ def api_bingo_patch_1700():
                     "total_bet": data["total_bet"], "total_win": data["total_win"]})
 
 
+@app.route("/api/data/export")
+def api_data_export():
+    """匯出 /data 目錄下所有資料檔案（供本機開發同步用）"""
+    import base64
+    from flask import send_file
+    files = {}
+    data_dir = bingo_core._DATA_DIR
+    for fname in ["bingo_history.csv", "bingo_invest.json", "bingo_learn.json",
+                  "539_history.csv", "learn_state.json", "current_rec.json"]:
+        fpath = data_dir / fname
+        if fpath.exists():
+            content = fpath.read_bytes()
+            files[fname] = base64.b64encode(content).decode()
+    return jsonify({"ok": True, "files": files})
+
+
 @app.route("/api/bingo/resettle", methods=["POST"])
 def api_bingo_resettle():
     """把所有快照標為未結算，重新用正確期數順序結算"""
