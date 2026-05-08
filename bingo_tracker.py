@@ -99,7 +99,7 @@ def settle_snapshots(df):
         df_sorted["_period_int"] = df_sorted["period"].astype(float).astype(int)
         df_sorted = df_sorted.sort_values("_period_int").reset_index(drop=True)
 
-        after_df = df_sorted[df_sorted["_period_int"] > from_p]
+        after_df = df_sorted[df_sorted["_period_int"] > from_p].drop_duplicates("_period_int")
         if len(after_df) < PERIODS_PER_SLOT:
             continue  # 不足10期，等下次
 
