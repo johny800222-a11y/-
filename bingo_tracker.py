@@ -144,57 +144,65 @@ def settle_snapshots(df):
 
 def daily_report_text(df) -> str:
     data = settle_snapshots(df)
-    today    = datetime.now(_TW).strftime("%Y-%m-%d")
     yesterday = (datetime.now(_TW) - timedelta(days=1)).strftime("%Y-%m-%d")
 
     # 昨日已結算快照
     yest_snaps = [s for s in data["snapshots"]
                   if s.get("date") == yesterday and s.get("settled")]
 
-    y_bet = sum(s["bet"] for s in yest_snaps)
-    y_win = sum(s["win"] for s in yest_snaps)
-    y_net = y_win - y_bet
-
     # 命中統計
     all_results = [r for s in yest_snaps for r in s.get("results", [])]
-    total_6bets = len(all_results)
+    total_bets  = len(all_results)
     hit6_any    = sum(1 for r in all_results if r["six_hits"] >= 4)
     hit9_any    = sum(1 for r in all_results if r["nine_hits"] >= 6)
-    win_rate_6  = round(hit6_any / total_6bets * 100) if total_6bets else 0
-    win_rate_9  = round(hit9_any / total_6bets * 100) if total_6bets else 0
+    win_rate_6  = round(hit6_any / total_bets * 100) if total_bets else 0
+    win_rate_9  = round(hit9_any / total_bets * 100) if total_bets else 0
 
     # 累計
-    balance  = data["balance"]
-    cum_net  = data["total_win"] - data["total_bet"]
-    cum_roi  = round(cum_net / data["total_bet"] * 100) if data["total_bet"] else 0
+    balance = data["balance"]
+    t_bet   = data["total_bet"]
+    t_win   = data["total_win"]
+    cum_net = t_win - t_bet
+    cum_roi = round(cum_net / t_bet * 100) if t_bet else 0
 
     lines = [
         f"📊 Bingo Bingo 每日報告 — {yesterday}",
-        "─" * 36,
-        f"昨日投注：{y_bet:,} 元",
-        f"昨日獲獎：{y_win:,} 元",
-        f"昨日損益：{'▲' if y_net >= 0 else '▼'} {y_net:+,} 元",
-        "",
-        f"6星命中率（≥4球）：{win_rate_6}%（{hit6_any}/{total_6bets} 期）",
-        f"9星命中率（≥6球）：{win_rate_9}%（{hit9_any}/{total_6bets} 期）",
-        "",
-        "─" * 36,
-        f"累計投注：{data['total_bet']:,} 元",
-        f"累計獲獎：{data['total_win']:,} 元",
-        f"累計損益：{'▲' if cum_net >= 0 else '▼'} {cum_net:+,} 元（{cum_roi:+}%）",
-        f"目前餘額：{balance:,} 元",
-        "─" * 36,
-        "⚠️ 本報告為統計模擬，不構成投資建議",
+        "─" * 34,
     ]
 
-    # 加入昨日各時段明細
+    # 昨日各時段明細
     if yest_snaps:
-        lines.insert(7, "")
-        lines.insert(8, "昨日時段明細：")
+        lines.append("📌 昨日時段明細")
+        lines.append("")
+        slot_num = 1
         for s in yest_snaps:
-            best = max(s["results"], key=lambda r: r["six_win"] + r["nine_win"], default=None)
-            best_str = f"最佳期 {best['period']}（6星{best['six_hits']}中/{best['nine_hits']}中）" if best else ""
-            lines.insert(9, f"  {s['slot']}  投{s['bet']} 贏{s['win']} 淨{s['net']:+}  {best_str}")
+            results = s.get("results", [])
+            s_results = [r for r in results]
+            best = max(s_results, key=lambda r: r["six_hits"] + r["nine_hits"], default=None)
+            best_str = f"最佳：6星{best['six_hits']}中 / 9星{best['nine_hits']}中" if best else ""
+            lines.append(f"{slot_num}️⃣ {s['slot']}")
+            lines.append(f"   推薦 6星：{s.get('six', [])}")
+            lines.append(f"   推薦 9星：{s.get('nine', [])}")
+            lines.append(f"   投注 {s.get('bet',0):,} 元 / 獲獎 {s.get('win',0):,} 元 / 淨 {s.get('net',0):+,} 元")
+            lines.append(f"   {best_str}")
+            lines.append("")
+            slot_num += 1
+        lines.append(f"6星命中率（≥4球）：{win_rate_6}%（{hit6_any}/{total_bets} 期）")
+        lines.append(f"9星命中率（≥6球）：{win_rate_9}%（{hit9_any}/{total_bets} 期）")
+    else:
+        lines.append("昨日無已結算記錄")
+
+    lines += [
+        "",
+        "─" * 34,
+        "📊 累計損益",
+        f"累計投注：{t_bet:,} 元",
+        f"累計獲獎：{t_win:,} 元",
+        f"累計損益：{'▲' if cum_net >= 0 else '▼'} {cum_net:+,} 元（{cum_roi:+}%）",
+        f"目前餘額：{balance:,} 元",
+        "─" * 34,
+        "⚠️ 本報告為統計模擬，不構成投資建議",
+    ]
 
     return "\n".join(lines)
 
