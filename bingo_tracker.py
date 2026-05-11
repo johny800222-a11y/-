@@ -142,7 +142,7 @@ def settle_snapshots(df):
 
 # ── 每日報告 ────────────────────────────────────────────────────
 
-def daily_report_text(df) -> str:
+def daily_report_text(df, learn_summary: dict = None) -> str:
     data = settle_snapshots(df)
     yesterday = (datetime.now(_TW) - timedelta(days=1)).strftime("%Y-%m-%d")
 
@@ -192,14 +192,32 @@ def daily_report_text(df) -> str:
     else:
         lines.append("昨日無已結算記錄")
 
+    # 命中率統計
     lines += [
+        f"🎯 命中率",
+        f"   6星（≥4球中獎）：{win_rate_6}%（{hit6_any}/{total_bets} 期）",
+        f"   9星（≥6球中獎）：{win_rate_9}%（{hit9_any}/{total_bets} 期）",
         "",
+    ]
+
+    # 演算法迭代資訊
+    if learn_summary:
+        lines += [
+            "🔄 演算法迭代",
+            f"   累計學習：{learn_summary.get('total_rounds', 0)} 期",
+            f"   近期 6星平均命中：{learn_summary.get('avg_six_hits', 0)} 球",
+            f"   近期 9星平均命中：{learn_summary.get('avg_nine_hits', 0)} 球",
+            f"   最後更新：{learn_summary.get('last_updated', '-')}",
+            "",
+        ]
+
+    lines += [
         "─" * 34,
         "📊 累計損益",
-        f"累計投注：{t_bet:,} 元",
-        f"累計獲獎：{t_win:,} 元",
-        f"累計損益：{'▲' if cum_net >= 0 else '▼'} {cum_net:+,} 元（{cum_roi:+}%）",
-        f"目前餘額：{balance:,} 元",
+        f"   累計投注：{t_bet:,} 元",
+        f"   累計獲獎：{t_win:,} 元",
+        f"   累計損益：{'▲' if cum_net >= 0 else '▼'} {cum_net:+,} 元（{cum_roi:+}%）",
+        f"   目前餘額：{balance:,} 元",
         "─" * 34,
         "⚠️ 本報告為統計模擬，不構成投資建議",
     ]

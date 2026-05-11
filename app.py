@@ -458,19 +458,27 @@ _morning_log = {"last_run": None, "result": None, "error": None}
 
 
 def _send_telegram(text: str):
-    """傳送 Telegram 訊息"""
-    import os, urllib.request, json as _json
+    """傳送 Telegram 訊息（使用 subprocess curl 避免本機 SSL 問題）"""
+    import os, subprocess, json as _json
     token   = os.environ.get("TG_TOKEN", "")
     chat_id = os.environ.get("TG_CHAT_ID", "")
     if not token or not chat_id:
+        _morning_log["error"] = "TG_TOKEN 或 TG_CHAT_ID 未設定"
         return
-    url  = f"https://api.telegram.org/bot{token}/sendMessage"
-    data = _json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}).encode()
+    payload = _json.dumps({"chat_id": chat_id, "text": text})
     try:
-        urllib.request.urlopen(urllib.request.Request(
-            url, data=data, headers={"Content-Type": "application/json"}), timeout=10)
-    except Exception:
-        pass
+        r = subprocess.run(
+            ["curl", "-s", "-X", "POST",
+             f"https://api.telegram.org/bot{token}/sendMessage",
+             "-H", "Content-Type: application/json",
+             "-d", payload],
+            capture_output=True, text=True, timeout=15
+        )
+        result = _json.loads(r.stdout)
+        if not result.get("ok"):
+            _morning_log["error"] = f"TG error: {result.get('description','')}"
+    except Exception as e:
+        _morning_log["error"] = f"TG exception: {e}"
 
 
 def _morning_routine():
@@ -486,8 +494,9 @@ def _morning_routine():
         # 2. 根據昨日結果 + 最新開獎資料，迭代更新學習權重
         result = bingo_learner.daily_update(data, df)
         _morning_log.update(last_run=_tw_now(), result=result, error=None)
-        # 3. 傳送每日報告到 Telegram
-        text = bingo_tracker.daily_report_text(df)
+        # 3. 傳送每日報告到 Telegram（含命中率 + 迭代資訊）
+        learn_summary = bingo_learner.get_summary()
+        text = bingo_tracker.daily_report_text(df, learn_summary)
         _send_telegram(text)
         # 4. 同時寄 Email（有設定 SMTP 才寄）
         html = bingo_tracker.daily_report_html(df)
