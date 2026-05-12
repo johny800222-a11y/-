@@ -355,9 +355,27 @@ def api_bingo_reset():
 
 @app.route("/api/bingo/learn")
 def api_bingo_learn():
-    """查看 / 手動觸發學習"""
+    """查看學習狀態"""
     summary = bingo_learner.get_summary()
     return jsonify({"ok": True, "morning_log": _morning_log, **summary})
+
+
+@app.route("/api/bingo/send_report", methods=["POST"])
+def api_bingo_send_report():
+    """手動或外部 Cron 觸發：結算 + 學習 + 發送 TG 報告"""
+    try:
+        df = bingo_core.load_data()
+        if df is None or df.empty:
+            return jsonify({"ok": False, "msg": "無開獎資料"})
+        data = bingo_tracker.settle_snapshots(df)
+        result = bingo_learner.daily_update(data, df)
+        learn_summary = bingo_learner.get_summary()
+        text = bingo_tracker.daily_report_text(df, learn_summary)
+        _send_telegram(text)
+        return jsonify({"ok": True, "learn": result, "tg_error": _morning_log.get("error")})
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "msg": str(e), "trace": traceback.format_exc()})
 
 
 @app.route("/api/bingo/report")
