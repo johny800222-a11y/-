@@ -229,11 +229,11 @@
       </div>
       <div class="stat-item">
         <div class="stat-num" id="learn-prob-avg" style="color:#e57373;">—</div>
-        <div class="stat-lbl">🔥 近30期平均命中</div>
+        <div class="stat-lbl">🔥 主推薦近30期平均命中</div>
       </div>
       <div class="stat-item">
-        <div class="stat-num" id="learn-value-avg" style="color:var(--gold);">—</div>
-        <div class="stat-lbl">💰 近30期平均命中</div>
+        <div class="stat-num" id="learn-strategy-avg" style="color:#81c784;">—</div>
+        <div class="stat-lbl">🎯 策略推薦近30期平均命中</div>
       </div>
     </div>
     <div id="learn-history" style="margin-top:16px;"></div>
@@ -251,6 +251,48 @@
     <div class="balls" id="best-balls" style="justify-content:center;gap:14px;margin:8px 0 16px;"></div>
     <div class="meta" id="best-meta" style="text-align:center;font-size:.9rem;"></div>
     <div class="notice" style="margin-top:16px;">
+      ⚠️ 彩券開獎為獨立隨機事件，以上為統計分析結果，請理性購買。
+    </div>
+  </div>
+
+  <!-- ── 策略推薦 ── -->
+  <div class="card" id="strategy-card" style="display:none;">
+    <div class="card-title">🎯 策略號碼推薦</div>
+    <div style="font-size:.8rem;color:var(--muted);margin-bottom:16px;">
+      冷熱選號 × 尾數群聚 × 分散區間 三策略合併
+    </div>
+    <div class="balls" id="strategy-balls" style="justify-content:center;gap:14px;margin:8px 0 12px;"></div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px;">
+      <div style="background:rgba(255,100,100,.12);border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:.75rem;color:var(--muted);margin-bottom:4px;">🔥 熱號採用</div>
+        <div id="strategy-hot" style="font-size:.9rem;font-weight:600;color:#e57373;">—</div>
+      </div>
+      <div style="background:rgba(100,180,255,.12);border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:.75rem;color:var(--muted);margin-bottom:4px;">❄️ 冷號採用</div>
+        <div id="strategy-cold" style="font-size:.9rem;font-weight:600;color:#64b5f6;">—</div>
+      </div>
+      <div style="background:rgba(255,213,79,.12);border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:.75rem;color:var(--muted);margin-bottom:4px;">🔢 熱門尾數</div>
+        <div id="strategy-tail" style="font-size:.9rem;font-weight:600;color:var(--gold);">—</div>
+      </div>
+    </div>
+
+    <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+      <div style="background:rgba(255,255,255,.05);border-radius:8px;padding:8px;text-align:center;">
+        <div style="font-size:.72rem;color:var(--muted);">低區 1–13</div>
+        <div id="zone-low" style="font-size:.88rem;font-weight:600;">—</div>
+      </div>
+      <div style="background:rgba(255,255,255,.05);border-radius:8px;padding:8px;text-align:center;">
+        <div style="font-size:.72rem;color:var(--muted);">中區 14–26</div>
+        <div id="zone-mid" style="font-size:.88rem;font-weight:600;">—</div>
+      </div>
+      <div style="background:rgba(255,255,255,.05);border-radius:8px;padding:8px;text-align:center;">
+        <div style="font-size:.72rem;color:var(--muted);">高區 27–39</div>
+        <div id="zone-high" style="font-size:.88rem;font-weight:600;">—</div>
+      </div>
+    </div>
+    <div class="notice" style="margin-top:14px;">
       ⚠️ 彩券開獎為獨立隨機事件，以上為統計分析結果，請理性購買。
     </div>
   </div>
@@ -444,9 +486,9 @@ async function loadStats() {
   const ln = s.learn;
   if (ln && ln.total_rounds >= 0) {
     document.getElementById("learn-card").style.display = "block";
-    document.getElementById("learn-rounds").textContent    = ln.total_rounds;
-    document.getElementById("learn-prob-avg").textContent  = ln.total_rounds > 0 ? ln.prob_avg_hits.toFixed(2) + " 顆" : "—";
-    document.getElementById("learn-value-avg").textContent = ln.total_rounds > 0 ? ln.value_avg_hits.toFixed(2) + " 顆" : "—";
+    document.getElementById("learn-rounds").textContent        = ln.total_rounds;
+    document.getElementById("learn-prob-avg").textContent      = ln.total_rounds > 0 ? ln.prob_avg_hits.toFixed(2) + " 顆" : "—";
+    document.getElementById("learn-strategy-avg").textContent  = ln.total_rounds > 0 ? (ln.strategy_avg_hits || 0).toFixed(2) + " 顆" : "—";
 
     const lh = document.getElementById("learn-history");
     lh.innerHTML = "";
@@ -467,7 +509,8 @@ async function loadStats() {
 
         const hits = document.createElement("span");
         hits.style.cssText = "font-size:.78rem;color:var(--muted);white-space:nowrap;";
-        hits.textContent = `命中 ${rec.prob_hits} 顆`;
+        const sh = rec.strategy_hits != null ? `  策略 ${rec.strategy_hits} 顆` : "";
+        hits.textContent = `主推薦 ${rec.prob_hits} 顆${sh}`;
         row.appendChild(hits);
 
         lh.appendChild(row);
@@ -486,11 +529,33 @@ async function getRecommend() {
   hideOverlay();
   if (!r.ok) { alert(r.msg); return; }
 
+  // 主推薦
   document.getElementById("rec-card").style.display = "block";
   renderBalls("best-balls", r.best, "best-meta");
   if (r.draw_date) {
     document.getElementById("rec-period").textContent =
       `依據最新開獎日 ${r.draw_date} 產生・本期固定，新開獎後自動更新`;
+  }
+
+  // 策略推薦
+  const s = r.strategy;
+  if (s && s.nums) {
+    document.getElementById("strategy-card").style.display = "block";
+    renderBalls("strategy-balls", s.nums);
+
+    document.getElementById("strategy-hot").textContent  =
+      s.hot_used && s.hot_used.length ? s.hot_used.join("、") : "無";
+    document.getElementById("strategy-cold").textContent =
+      s.cold_used && s.cold_used.length ? s.cold_used.join("、") : "無";
+    document.getElementById("strategy-tail").textContent =
+      s.hot_tail && s.hot_tail.length
+        ? s.hot_tail.map(t => `尾${t.tail}(${t.cnt}次)`).join(" / ")
+        : "—";
+
+    const zd = s.zone_dist || {};
+    document.getElementById("zone-low").textContent  = (zd["低(1-13)"]  || []).join("、") || "—";
+    document.getElementById("zone-mid").textContent  = (zd["中(14-26)"] || []).join("、") || "—";
+    document.getElementById("zone-high").textContent = (zd["高(27-39)"] || []).join("、") || "—";
   }
 }
 

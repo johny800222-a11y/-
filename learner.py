@@ -29,12 +29,13 @@ MISS_PENALTY = 0.6
 
 def _default_state() -> dict:
     return {
-        "weights":      {str(n): 1.0 for n in BALL_RANGE},
-        "history":      [],          # [{date, prob_hits, value_hits, actual}]
-        "last_checked": None,        # 最後對獎的開獎日期
-        "total_rounds": 0,
-        "prob_avg_hits": 0.0,
-        "value_avg_hits": 0.0,
+        "weights":           {str(n): 1.0 for n in BALL_RANGE},
+        "history":           [],   # [{date, prob_hits, value_hits, strategy_hits, actual}]
+        "last_checked":      None,
+        "total_rounds":      0,
+        "prob_avg_hits":     0.0,
+        "value_avg_hits":    0.0,
+        "strategy_avg_hits": 0.0,  # 策略推薦近30期平均命中
     }
 
 
@@ -112,10 +113,11 @@ def update(actual_nums: list[int], prob_rec: list[int], value_rec: list[int]):
     return prob_hits, value_hits
 
 
-def auto_update_from_df(df: pd.DataFrame, last_prob: list[int], last_value: list[int]) -> dict | None:
+def auto_update_from_df(df: pd.DataFrame, last_prob: list[int], last_value: list[int],
+                        last_strategy: list[int] = None) -> dict | None:
     """
     比對資料中最新一期是否已對獎，若尚未對獎則執行 update()。
-    回傳對獎結果，或 None（已對過或無上期推薦）。
+    同時追蹤策略推薦命中數。
     """
     state = load_state()
     latest = df.iloc[-1]
@@ -129,20 +131,40 @@ def auto_update_from_df(df: pd.DataFrame, last_prob: list[int], last_value: list
     actual = [int(latest[c]) for c in ["n1", "n2", "n3", "n4", "n5"]]
     prob_hits, value_hits = update(actual, last_prob, last_value)
 
+    # 策略推薦命中追蹤（不影響學習權重，只統計）
+    strategy_hits = len(set(last_strategy) & set(actual)) if last_strategy else 0
+    state = load_state()  # 重新讀（update 已存檔）
+    history = state.get("history", [])
+    if history:
+        history[-1]["strategy_hits"] = strategy_hits
+    recent = history[-30:]
+    state["strategy_avg_hits"] = round(
+        sum(r.get("strategy_hits", 0) for r in recent) / len(recent), 2
+    ) if recent else 0.0
+    # 補齊舊記錄缺少的 strategy_avg_hits 欄位
+    if "strategy_avg_hits" not in state:
+        state["strategy_avg_hits"] = 0.0
+    save_state(state)
+
     return {
-        "date":        latest_date,
-        "actual":      actual,
-        "prob_hits":   prob_hits,
-        "value_hits":  value_hits,
+        "date":           latest_date,
+        "actual":         actual,
+        "prob_hits":      prob_hits,
+        "value_hits":     value_hits,
+        "strategy_hits":  strategy_hits,
     }
 
 
 def get_summary() -> dict:
     state = load_state()
+    # 相容舊版（缺少 strategy_avg_hits）
+    if "strategy_avg_hits" not in state:
+        state["strategy_avg_hits"] = 0.0
     return {
-        "total_rounds":    state["total_rounds"],
-        "prob_avg_hits":   state["prob_avg_hits"],
-        "value_avg_hits":  state["value_avg_hits"],
-        "last_checked":    state["last_checked"],
+        "total_rounds":      state["total_rounds"],
+        "prob_avg_hits":     state["prob_avg_hits"],
+        "value_avg_hits":    state["value_avg_hits"],
+        "strategy_avg_hits": state["strategy_avg_hits"],
+        "last_checked":      state["last_checked"],
         "history":         state["history"][-10:],  # 最近10筆給前端
     }

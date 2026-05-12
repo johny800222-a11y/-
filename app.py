@@ -18,9 +18,9 @@ app = Flask(__name__)
 # 全量抓取進度
 _fetch_state = {"running": False, "page": 0, "total": core.TOTAL_PAGES, "error": ""}
 
-# 本期推薦快取：格式 {"draw_date": "2026-05-02", "best": [1,2,3,4,5]}
-# 同一期內不論重新整理幾次，都回傳同一組號碼
-_rec_file = core.DATA_FILE.parent / "current_rec.json"  # 與 core.DATA_FILE 同在 /data
+# 推薦快取（主推薦 + 策略推薦），同一期不重複產生
+_rec_file      = core.DATA_FILE.parent / "current_rec.json"
+_strategy_file = core.DATA_FILE.parent / "current_strategy_rec.json"
 
 
 def _load_rec() -> dict:
@@ -36,26 +36,50 @@ def _save_rec(draw_date: str, nums: list):
     _rec_file.write_text(json.dumps({"draw_date": draw_date, "best": nums}))
 
 
+def _load_strategy_rec() -> dict:
+    if _strategy_file.exists():
+        try:
+            return json.loads(_strategy_file.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def _save_strategy_rec(draw_date: str, data: dict):
+    _strategy_file.write_text(json.dumps({"draw_date": draw_date, **data}))
+
+
 def _get_or_generate_rec(df) -> list[int]:
-    """
-    若快取的推薦與最新開獎日期相同，直接回傳快取。
-    否則（新一期開始）重新產生並存檔。
-    """
+    """主推薦：同一期回傳快取，新一期先學習再產生"""
     latest_date = df["date"].max().strftime("%Y-%m-%d")
     cached = _load_rec()
 
     if cached.get("draw_date") == latest_date:
         return cached["best"]
 
-    # 新一期：先對上期推薦做學習，再產生新推薦
-    old_best = cached.get("best", [])
+    # 新一期：學習後產生推薦
+    old_best     = cached.get("best", [])
+    old_strategy = _load_strategy_rec().get("nums", [])
     if old_best:
-        learner.auto_update_from_df(df, old_best, old_best)
+        learner.auto_update_from_df(df, old_best, old_best, last_strategy=old_strategy)
 
     weights = learner.get_weights()
     best = core.recommend_best(df, weights)
     _save_rec(latest_date, best)
     return best
+
+
+def _get_or_generate_strategy(df) -> dict:
+    """策略推薦：同一期回傳快取，新一期重新產生"""
+    latest_date = df["date"].max().strftime("%Y-%m-%d")
+    cached = _load_strategy_rec()
+
+    if cached.get("draw_date") == latest_date:
+        return cached
+
+    result = core.strategy_recommend(df)
+    _save_strategy_rec(latest_date, result)
+    return {"draw_date": latest_date, **result}
 
 
 # ── 頁面 ─────────────────────────────────────────────────────────────────────
@@ -128,10 +152,13 @@ def api_recommend():
     best = _get_or_generate_rec(df)
     cached = _load_rec()
 
+    strategy = _get_or_generate_strategy(df)
+
     return jsonify({
         "ok":        True,
         "best":      best,
         "draw_date": cached.get("draw_date", ""),
+        "strategy":  strategy,
     })
 
 

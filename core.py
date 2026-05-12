@@ -140,6 +140,114 @@ def recommend_best(df: pd.DataFrame, learn_weights: dict[int, float] | None = No
     return sorted(random.sample(BALL_RANGE, 5))
 
 
+# ── 策略推薦 ──────────────────────────────────────────────────────────────────
+
+def strategy_recommend(df: pd.DataFrame) -> dict:
+    """
+    三策略合併選號：
+      策略1 冷熱號碼：近10期熱號2碼 + 超過25期未出現冷號1碼
+      策略2 尾數群聚：取近30期最熱門尾數，補入1碼同尾號
+      策略3 分散區間：低(1-13)/中(14-26)/高(27-39) 各區保證至少1碼
+    最終5碼通過奇偶比/總和過濾，並附帶各策略分析說明。
+    """
+    recent10  = Counter(df.tail(10)[BALL_COLS].values.flatten().tolist())
+    recent30  = Counter(df.tail(30)[BALL_COLS].values.flatten().tolist())
+
+    # ── 策略1：冷熱號碼 ──────────────────────────────────────────
+    # 熱號：近10期出現次數最多
+    hot_nums  = [n for n, _ in sorted(recent10.items(), key=lambda x: x[1], reverse=True)]
+    # 冷號：超過25期未出現
+    all_periods = df[BALL_COLS].values.tolist()
+    last_seen   = {}
+    for i, row in enumerate(all_periods):
+        for n in row:
+            last_seen[int(n)] = i
+    total_rows = len(all_periods)
+    cold_nums = sorted(
+        [n for n in BALL_RANGE if total_rows - 1 - last_seen.get(n, 0) >= 25],
+        key=lambda n: total_rows - 1 - last_seen.get(n, 0), reverse=True
+    )
+
+    # ── 策略2：尾數群聚 ──────────────────────────────────────────
+    tail_freq = Counter(n % 10 for n in recent30.elements())
+    hot_tail  = tail_freq.most_common(2)  # 最熱兩個尾數
+    tail_candidates = []
+    for tail, _ in hot_tail:
+        tail_candidates += [n for n in BALL_RANGE if n % 10 == tail]
+
+    # ── 策略3：分散區間 ──────────────────────────────────────────
+    zones = {"低": list(range(1, 14)), "中": list(range(14, 27)), "高": list(range(27, 40))}
+
+    def best_in_zone(zone_nums, exclude):
+        candidates = [n for n in zone_nums if n not in exclude]
+        if not candidates:
+            return None
+        # 優先熱號，其次尾數候選，最後一般
+        for n in hot_nums:
+            if n in candidates:
+                return n
+        for n in tail_candidates:
+            if n in candidates:
+                return n
+        return candidates[0]
+
+    # 組合：每區至少1碼，熱號優先，補冷號1碼，尾數穿插
+    picked = []
+    for zone_nums in zones.values():
+        n = best_in_zone(zone_nums, set(picked))
+        if n:
+            picked.append(n)
+
+    # 補到5碼：先嘗試加入冷號，再從熱號補
+    for n in cold_nums:
+        if len(picked) >= 5:
+            break
+        if n not in picked:
+            picked.append(n)
+    for n in tail_candidates + hot_nums:
+        if len(picked) >= 5:
+            break
+        if n not in picked:
+            picked.append(n)
+    # 最後從全體補齊
+    for n in BALL_RANGE:
+        if len(picked) >= 5:
+            break
+        if n not in picked:
+            picked.append(n)
+
+    # 嘗試找通過過濾的排列（最多嘗試100組）
+    import itertools
+    candidates_pool = list(set(
+        hot_nums[:6] + cold_nums[:3] + tail_candidates[:6] + picked
+    ))
+    result = sorted(picked[:5])
+    for combo in itertools.combinations(candidates_pool, 5):
+        if _ok(list(combo)):
+            result = sorted(combo)
+            break
+
+    # 分析說明
+    used_hot  = [n for n in result if n in hot_nums[:5]]
+    used_cold = [n for n in result if n in cold_nums]
+    used_tail = [(n, n % 10) for n in result if n in tail_candidates]
+    zone_dist = {
+        "低(1-13)":   [n for n in result if 1  <= n <= 13],
+        "中(14-26)":  [n for n in result if 14 <= n <= 26],
+        "高(27-39)":  [n for n in result if 27 <= n <= 39],
+    }
+
+    return {
+        "nums":      result,
+        "hot_used":  used_hot,
+        "cold_used": used_cold,
+        "tail_used": used_tail,
+        "zone_dist": zone_dist,
+        "cold_top3": cold_nums[:3],
+        "hot_tail":  [{"tail": t, "cnt": c} for t, c in hot_tail],
+    }
+
+
 # ── 統計 ──────────────────────────────────────────────────────────────────────
 
 def get_stats(df: pd.DataFrame) -> dict:
