@@ -476,25 +476,24 @@ _morning_log = {"last_run": None, "result": None, "error": None}
 
 
 def _send_telegram(text: str):
-    """傳送 Telegram 訊息（使用 subprocess curl 避免本機 SSL 問題）"""
-    import os, subprocess, json as _json
+    """傳送 Telegram 訊息"""
+    import os, requests as _req, json as _json
     token   = os.environ.get("TG_TOKEN", "")
     chat_id = os.environ.get("TG_CHAT_ID", "")
     if not token or not chat_id:
         _morning_log["error"] = "TG_TOKEN 或 TG_CHAT_ID 未設定"
         return
-    payload = _json.dumps({"chat_id": chat_id, "text": text})
     try:
-        r = subprocess.run(
-            ["curl", "-s", "-X", "POST",
-             f"https://api.telegram.org/bot{token}/sendMessage",
-             "-H", "Content-Type: application/json",
-             "-d", payload],
-            capture_output=True, text=True, timeout=15
+        r = _req.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": text},
+            timeout=15
         )
-        result = _json.loads(r.stdout)
+        result = r.json()
         if not result.get("ok"):
             _morning_log["error"] = f"TG error: {result.get('description','')}"
+        else:
+            _morning_log["error"] = None
     except Exception as e:
         _morning_log["error"] = f"TG exception: {e}"
 
