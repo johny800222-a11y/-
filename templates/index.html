@@ -222,18 +222,22 @@
   <!-- ── 演算法學習狀態 ── -->
   <div class="card" id="learn-card" style="display:none;">
     <div class="card-title">演算法學習狀態</div>
-    <div class="stat-row">
+    <!-- 已學習期數單獨一行 -->
+    <div class="stat-row" style="margin-bottom:10px;">
       <div class="stat-item">
         <div class="stat-num" id="learn-rounds">—</div>
         <div class="stat-lbl">已學習期數</div>
       </div>
-      <div class="stat-item">
+    </div>
+    <!-- 主推薦 vs 策略推薦 強制兩欄並排 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div style="background:rgba(229,115,115,.12);border-radius:10px;padding:12px;text-align:center;">
         <div class="stat-num" id="learn-prob-avg" style="color:#e57373;">—</div>
-        <div class="stat-lbl">🔥 主推薦近30期平均命中</div>
+        <div class="stat-lbl" style="font-size:.72rem;">🔥 主推薦<br>近30期平均命中</div>
       </div>
-      <div class="stat-item">
+      <div style="background:rgba(129,199,132,.12);border-radius:10px;padding:12px;text-align:center;">
         <div class="stat-num" id="learn-strategy-avg" style="color:#81c784;">—</div>
-        <div class="stat-lbl">🎯 策略推薦近30期平均命中</div>
+        <div class="stat-lbl" style="font-size:.72rem;">🎯 策略推薦<br>近30期平均命中</div>
       </div>
     </div>
     <div id="learn-history" style="margin-top:16px;"></div>
