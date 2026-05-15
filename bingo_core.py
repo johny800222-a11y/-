@@ -665,60 +665,62 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
 
     all_ranked = sorted(BALL_RANGE, key=lambda n: scores.get(n, 0), reverse=True)
 
-    # ── 二同數分析：民間核心玩法 ─────────────────────────────────
-    # 每期平均有 6~7 組二同，選號必須包含至少 1 對同尾號碼
-    sta = same_tail_analysis(df, window=min(200, total_rows))
-    hot_tails = sta["hot_tails"]   # 尾數由熱到冷
-    tail_top2 = sta["tail_top2"]   # 各尾數前2熱號
+    # ── 強力關聯數對（二同數）優先選號 ──────────────────────────────
+    # 找出共現次數最強的號碼對（前N對），優先把這些對納入選號
+    sorted_pairs = sorted(comat.items(), key=lambda x: x[1], reverse=True)
+    max_comat = max(comat.values()) if comat else 1
 
-    def pick_same_tail_pair(tail, exclude):
-        """從指定尾數中選出得分最高的2個號碼（二同對）"""
-        candidates = sorted(
-            [n for n in BALL_RANGE if n % 10 == tail and n not in exclude],
-            key=lambda n: scores.get(n, 0), reverse=True
-        )
-        return candidates[:2]
+    # Top 10 強力關聯對（供前端顯示）
+    top_pairs = []
+    for (a, b), cnt in sorted_pairs[:10]:
+        top_pairs.append({
+            "a": a, "b": b, "cnt": cnt,
+            "pct": round(cnt / max_comat * 100)
+        })
 
-    # 6星：先從最熱尾數取一對二同（2個），再區間平衡補4個
-    six = []
-    # 步驟1：最熱尾數二同對
-    for t in hot_tails:
-        pair = pick_same_tail_pair(t, set(six))
-        if len(pair) == 2:
-            six.extend(pair)
-            break
-    # 步驟2：區間平衡補足（確保4個區間各有覆蓋）
+    # 建立「被強力對覆蓋」的號碼集合
+    # 策略：先鎖定最強的1~2對關聯數對作為核心，再區間平衡補足
+    def pick_strong_pair_core(n_pairs, exclude):
+        """從最強關聯對中選出 n_pairs 組（各2個），不重複"""
+        picked = []
+        used = set(exclude)
+        for (a, b), cnt in sorted_pairs:
+            if len(picked) >= n_pairs * 2:
+                break
+            if a not in used and b not in used:
+                picked.extend([a, b])
+                used.update([a, b])
+        return picked
+
+    # 6星：1組強力關聯對（2個）+ 區間平衡補4個
+    six = pick_strong_pair_core(1, [])
     for z in zones:
         if len(six) >= 6:
             break
-        picked = best_from_zone(z, set(six), 1)
-        six.extend(picked)
-    # 步驟3：若仍不足，從全域高分補
+        candidates = sorted(
+            [n for n in z if n not in set(six)],
+            key=lambda n: scores.get(n, 0), reverse=True
+        )
+        if candidates:
+            six.append(candidates[0])
     for n in all_ranked:
         if len(six) >= 6:
             break
         if n not in six:
             six.append(n)
 
-    # 9星：在6星基礎上再加第二對二同 + 區間補足至9個
-    nine = list(six)
-    # 加第二對二同（從次熱尾數選）
-    for t in hot_tails:
-        if len(nine) >= 9:
-            break
-        # 跳過已被6星使用的尾數對
-        existing_tails = [n % 10 for n in nine]
-        if existing_tails.count(t) >= 2:
-            continue
-        pair = pick_same_tail_pair(t, set(nine))
-        if len(pair) >= 1:
-            nine.extend(pair[:min(2, 9 - len(nine))])
-            if len(nine) >= 9:
-                break
+    # 9星：2組強力關聯對（4個）+ 區間平衡補5個
+    nine_core = pick_strong_pair_core(2, [])
+    nine = list(nine_core)
     for z in zones:
         if len(nine) >= 9:
             break
-        nine.extend(best_from_zone(z, set(nine), 1))
+        candidates = sorted(
+            [n for n in z if n not in set(nine)],
+            key=lambda n: scores.get(n, 0), reverse=True
+        )
+        if candidates:
+            nine.append(candidates[0])
     for n in all_ranked:
         if len(nine) >= 9:
             break
@@ -733,35 +735,32 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
         return round(sum(freq_map.get(n, 0) for n in nums) / (len(nums) * hot_max) * 100)
 
     def pair_score(nums):
-        pairs = [(a, b) for i, a in enumerate(nums) for b in nums[i+1:] if a < b]
-        s = sum(comat.get((a, b), 0) for a, b in pairs)
-        mx = max(comat.values()) if comat else 1
-        return round(s / (len(pairs) * mx) * 100) if pairs else 0
+        s_pairs = [(a, b) for i, a in enumerate(nums) for b in nums[i+1:] if a < b]
+        s = sum(comat.get((a, b), 0) for a, b in s_pairs)
+        mx = max_comat
+        return round(s / (len(s_pairs) * mx) * 100) if s_pairs else 0
 
-    top_pairs = []
-    for (a, b), cnt in sorted(comat.items(), key=lambda x: x[1], reverse=True)[:4]:
-        max_cnt = max(comat.values()) if comat else 1
-        top_pairs.append({"a": a, "b": b, "cnt": cnt,
-                          "pct": round(cnt / max_cnt * 100)})
-
-    # 統計選出的二同對
-    def count_same_tail_pairs(nums):
-        tc = Counter(n % 10 for n in nums)
-        return [(t, [n for n in nums if n % 10 == t]) for t, c in tc.items() if c >= 2]
+    # 標示選號中包含的強力對
+    def find_strong_pairs_in(nums):
+        result = []
+        num_set = set(nums)
+        for (a, b), cnt in sorted_pairs[:20]:
+            if a in num_set and b in num_set:
+                result.append({"a": a, "b": b, "cnt": cnt,
+                               "pct": round(cnt / max_comat * 100)})
+        return result
 
     return {
-        "hot_top10":       hot_top10,
-        "top_pairs":       top_pairs,
-        "six":             sorted(six),
-        "nine":            sorted(nine),
-        "six_same_tail":   count_same_tail_pairs(six),   # 6星中的二同對
-        "nine_same_tail":  count_same_tail_pairs(nine),  # 9星中的二同對
-        "hot_tails":       hot_tails[:5],                # 前5熱尾數
-        "avg_pairs_per_draw": sta["avg_pairs"],
+        "hot_top10":      hot_top10,
+        "top_pairs":      top_pairs[:4],              # 前4強力對（前端顯示）
+        "six":            sorted(six),
+        "nine":           sorted(nine),
+        "six_pairs":      find_strong_pairs_in(six),  # 6星中含哪些強力對
+        "nine_pairs":     find_strong_pairs_in(nine), # 9星中含哪些強力對
         "scores": {
-            "six_heat":  heat_score(six),
-            "six_pair":  pair_score(six),
-            "nine_heat": heat_score(nine),
-            "nine_pair": pair_score(nine),
+            "six_heat":   heat_score(six),
+            "six_pair":   pair_score(six),
+            "nine_heat":  heat_score(nine),
+            "nine_pair":  pair_score(nine),
         }
     }
