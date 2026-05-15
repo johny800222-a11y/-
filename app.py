@@ -525,24 +525,35 @@ def _send_telegram(text: str):
         _morning_log["error"] = f"TG exception: {e}"
 
 
+def _bingo_midnight_learn():
+    """每日 00:00：Bingo 全日開獎結束，結算快照 + 迭代更新學習權重"""
+    import traceback
+    try:
+        df = bingo_core.load_data()
+        if df is None or df.empty:
+            return
+        data = bingo_tracker.settle_snapshots(df)
+        result = bingo_learner.daily_update(data, df)
+        _morning_log.update(last_run=_tw_now(), result=result, error=None)
+    except Exception:
+        import traceback as tb
+        _morning_log.update(last_run=_tw_now(), result=None, error=tb.format_exc())
+
+
 def _morning_routine():
-    """早上9點：迭代更新演算法權重 + 傳送每日報告到 Telegram"""
+    """早上9點：傳送每日報告到 Telegram（學習已於 00:00 完成）"""
     import traceback
     try:
         df = bingo_core.load_data()
         if df is None or df.empty:
             _morning_log.update(last_run=_tw_now(), result=None, error="無開獎資料")
             return
-        # 1. 先結算昨日快照
+        # 確保快照已結算（補保險）
         data = bingo_tracker.settle_snapshots(df)
-        # 2. 根據昨日結果 + 最新開獎資料，迭代更新學習權重
-        result = bingo_learner.daily_update(data, df)
-        _morning_log.update(last_run=_tw_now(), result=result, error=None)
-        # 3. 傳送每日報告到 Telegram（含命中率 + 迭代資訊）
+        # 取學習摘要（00:00 已更新過）
         learn_summary = bingo_learner.get_summary()
         text = bingo_tracker.daily_report_text(df, learn_summary)
         _send_telegram(text)
-        # 4. 同時寄 Email（有設定 SMTP 才寄）
         html = bingo_tracker.daily_report_html(df)
         bingo_tracker.send_daily_email(html)
     except Exception:
@@ -575,15 +586,17 @@ def _539_weekly_learn():
 
 
 scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
-scheduler.add_job(_auto_update,        "cron", hour=21, minute=30)
-scheduler.add_job(_539_weekly_learn,   "cron", day_of_week="mon", hour=9, minute=0)
-scheduler.add_job(_bingo_auto_update,  "interval", minutes=5)
-# 每日投注快照
+scheduler.add_job(_auto_update,           "cron", hour=21, minute=30)
+scheduler.add_job(_539_weekly_learn,      "cron", day_of_week="mon", hour=9, minute=0)
+scheduler.add_job(_bingo_auto_update,     "interval", minutes=5)
+# 每日投注快照（12:00 / 16:00 / 20:00）
 scheduler.add_job(_take_snapshot, "cron", hour=12, minute=0,  args=["12:00"])
 scheduler.add_job(_take_snapshot, "cron", hour=16, minute=0,  args=["16:00"])
 scheduler.add_job(_take_snapshot, "cron", hour=20, minute=0,  args=["20:00"])
-# 每日早上9點 Bingo 學習 + 報告
-scheduler.add_job(_morning_routine, "cron", hour=9, minute=0)
+# 00:00 Bingo 迭代學習（開獎 07:05~23:55 結束後）
+scheduler.add_job(_bingo_midnight_learn,  "cron", hour=0, minute=5)
+# 09:00 傳送每日 TG 報告
+scheduler.add_job(_morning_routine,       "cron", hour=9, minute=0)
 scheduler.start()
 
 # 啟動時若 Bingo 無資料則自動初始化（背景執行，不阻塞啟動）
@@ -613,9 +626,12 @@ def _startup_catchup():
         if now.hour >= 9 and not sent_today.startswith(today_str):
             _morning_routine()
         # 補學 539（確保每次啟動都對齊最新開獎）
-        df = core.load_data()
-        if df is not None and not df.empty:
-            _get_or_generate_rec(df)
+        df539 = core.load_data()
+        if df539 is not None and not df539.empty:
+            _get_or_generate_rec(df539)
+        # 補學 Bingo（若 00:05 已過且尚未學習）
+        if now.hour >= 0 and not sent_today.startswith(today_str):
+            _bingo_midnight_learn()
     except Exception:
         pass
 
