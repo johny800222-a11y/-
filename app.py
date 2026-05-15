@@ -463,8 +463,8 @@ def _auto_update():
         return
     try:
         df, updated = core.update_latest()
-        if updated:
-            _get_or_generate_rec(df)
+        # 不論是否有新資料，都嘗試觸發學習（學習模組內部會判斷是否已學）
+        _get_or_generate_rec(df)
     except Exception:
         pass
 
@@ -607,11 +607,15 @@ def _startup_catchup():
     try:
         tz = pytz.timezone("Asia/Taipei")
         now = datetime.now(tz)
-        # 今天09:00是否已過，且還沒發過
         today_str = now.strftime("%Y-%m-%d")
+        # 補發 Bingo 每日報告
         sent_today = _morning_log.get("last_run", "")
         if now.hour >= 9 and not sent_today.startswith(today_str):
             _morning_routine()
+        # 補學 539（確保每次啟動都對齊最新開獎）
+        df = core.load_data()
+        if df is not None and not df.empty:
+            _get_or_generate_rec(df)
     except Exception:
         pass
 

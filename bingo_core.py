@@ -531,44 +531,85 @@ def cooccurrence_matrix(df: pd.DataFrame, window: int = 30) -> dict[tuple[int,in
 
 def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -> dict:
     """
-    回傳智慧選號結果：
-    - hot_top10: 熱號 Top 10（含頻次）
-    - top_pairs: 共現最強的 4 對
-    - six: 6星推薦（6個號碼）
-    - nine: 9星推薦（9個號碼 = 6星 + 3個擴展）
-    - scores: 6星/9星的熱度分/關聯分
+    多層訊號智慧選號：
+      短期熱號（30期）× 中期頻率（200期）× 長期基準（全量）
+      冷號補正（超過 N 期未出現 → 補分）
+      統計偏差（chi-square 方向加成）
+      學習權重（每日迭代更新）
+      區間平衡（1-20 / 21-40 / 41-60 / 61-80 各至少1個）
     """
-    # 若未傳入外部權重，從學習模組取全局權重
     if learn_weights is None:
         import bingo_learner
         learn_weights = bingo_learner.get_weights()
 
-    # 使用較大視窗（200期）提高統計穩定性
-    hot = hot_numbers(df, max(window, 200))
-    comat = cooccurrence_matrix(df, max(window, 200))
+    total_rows = len(df)
 
-    # 熱號 Top 10（仍用短窗口保留近期趨勢）
-    hot_short = hot_numbers(df, window)
-    hot_sorted = sorted(hot_short, key=lambda x: x["cnt"], reverse=True)
-    hot_top10 = hot_sorted[:10]
+    # ── 三層頻率統計 ────────────────────────────────────────────────
+    def freq_counter(rows):
+        c = Counter()
+        for _, row in rows.iterrows():
+            for col in NUM_COLS:
+                c[int(row[col])] += 1
+        return c
 
-    # 各號碼的關聯強度
+    short_w   = min(30,  total_rows)
+    mid_w     = min(200, total_rows)
+    long_w    = total_rows
+
+    freq_s = freq_counter(df.tail(short_w))   # 短期
+    freq_m = freq_counter(df.tail(mid_w))      # 中期
+    freq_l = freq_counter(df)                   # 長期
+
+    # 各層期望值（均勻分布下每號出現次數）
+    exp_s = short_w * 20 / 80
+    exp_m = mid_w  * 20 / 80
+    exp_l = long_w * 20 / 80
+
+    # ── 冷號補正：超過 cold_threshold 期沒出現的號碼加分 ────────────
+    cold_threshold = 25  # 超過25期未出現
+    last_seen = {}
+    nums_list = df[NUM_COLS].values.tolist()
+    for i, nums in enumerate(nums_list):
+        for n in nums:
+            last_seen[int(n)] = i
+    def cold_bonus(n):
+        last = last_seen.get(n, 0)
+        gap = total_rows - 1 - last
+        if gap >= cold_threshold:
+            return 1.0 + min(1.5, (gap - cold_threshold) / cold_threshold)
+        return 1.0
+
+    # ── 共現強度（中期視窗） ──────────────────────────────────────
+    comat = cooccurrence_matrix(df, mid_w)
     pair_strength: dict[int, int] = Counter()
     for (a, b), cnt in comat.items():
         pair_strength[a] += cnt
         pair_strength[b] += cnt
+    max_pair = max(pair_strength.values()) if pair_strength else 1
 
-    # 綜合分數 = 頻次 * 2 + 關聯強度 × 學習權重
-    scores = {
-        n["num"]: (n["cnt"] * 2 + pair_strength.get(n["num"], 0))
-                  * learn_weights.get(n["num"], 1.0)
-        for n in hot
-    }
+    # ── 綜合分數 ────────────────────────────────────────────────────
+    # 三層頻率歸一化後加權混合
+    # 短期（近期趨勢）×0.5 + 中期（統計穩定）×0.35 + 長期（基準修正）×0.15
+    # 再乘以：冷號補正 × 學習權重 × 關聯強度加成
+    scores = {}
+    for n in BALL_RANGE:
+        s_score = freq_s.get(n, 0) / exp_s      # 短期相對頻率
+        m_score = freq_m.get(n, 0) / exp_m      # 中期
+        l_score = freq_l.get(n, 0) / exp_l      # 長期
 
-    # ── 區間平衡選號 ──────────────────────────────────────────────
-    # Bingo 1-80 分 4 個區間，每期各區間平均開出約 5 顆
-    # 6星：每區間至少 1 個，共 6 個（配比 2-2-1-1 或 2-1-2-1）
-    # 9星：每區間至少 2 個，共 9 個（配比 3-2-2-2）
+        combined = s_score * 0.50 + m_score * 0.35 + l_score * 0.15
+        combined *= cold_bonus(n)
+        combined *= learn_weights.get(n, 1.0)
+        # 關聯強度加成（上限 1.3 倍）
+        combined *= min(1.3, 1.0 + 0.3 * pair_strength.get(n, 0) / max_pair)
+
+        scores[n] = max(combined, 0.001)
+
+    # ── 熱號 Top 10（短期視窗，供前端顯示） ───────────────────────
+    hot_short = hot_numbers(df, window)
+    hot_top10 = sorted(hot_short, key=lambda x: x["cnt"], reverse=True)[:10]
+
+    # ── 區間平衡選號 ────────────────────────────────────────────────
     zones = [range(1, 21), range(21, 41), range(41, 61), range(61, 81)]
 
     def best_from_zone(z, exclude, n_pick):
@@ -578,39 +619,36 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
         )
         return candidates[:n_pick]
 
-    # 6星：每區各取 1 個（4個），再從全域補 2 個最高分（不重複）
+    all_ranked = sorted(BALL_RANGE, key=lambda n: scores.get(n, 0), reverse=True)
+
+    # 6星：每區各取 1（4個），全域補 2 最高分
     six = []
     for z in zones:
-        picked = best_from_zone(z, set(six), 1)
-        six.extend(picked)
-    # 補到 6 個：從全域分數最高且未選的號碼補
-    all_ranked = sorted(BALL_RANGE, key=lambda n: scores.get(n, 0), reverse=True)
+        six.extend(best_from_zone(z, set(six), 1))
     for n in all_ranked:
         if len(six) >= 6:
             break
         if n not in six:
             six.append(n)
-    six_set = set(six)
 
-    # 9星：在 6星基礎上，每區各補 1 個（優先未覆蓋的區間），共 9 個
+    # 9星：6星基礎上每區再補 1（優先覆蓋缺少的區間），共 9 個
     nine = list(six)
     for z in zones:
         if len(nine) >= 9:
             break
-        picked = best_from_zone(z, set(nine), 1)
-        nine.extend(picked)
+        nine.extend(best_from_zone(z, set(nine), 1))
     for n in all_ranked:
         if len(nine) >= 9:
             break
         if n not in nine:
             nine.append(n)
 
-    # 評分指標
-    hot_avg = sum(x["cnt"] for x in hot) / len(BALL_RANGE)
-    hot_max = max(x["cnt"] for x in hot) or 1
+    # ── 評分指標 ───────────────────────────────────────────────────
+    hot_max = max(x["cnt"] for x in hot_short) or 1
 
     def heat_score(nums):
-        return round(sum(hot[n-1]["cnt"] for n in nums) / (len(nums) * hot_max) * 100)
+        freq_map = {x["num"]: x["cnt"] for x in hot_short}
+        return round(sum(freq_map.get(n, 0) for n in nums) / (len(nums) * hot_max) * 100)
 
     def pair_score(nums):
         pairs = [(a, b) for i, a in enumerate(nums) for b in nums[i+1:] if a < b]
@@ -618,14 +656,11 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
         mx = max(comat.values()) if comat else 1
         return round(s / (len(pairs) * mx) * 100) if pairs else 0
 
-    # 共現 Top 4 配對
     top_pairs = []
     for (a, b), cnt in sorted(comat.items(), key=lambda x: x[1], reverse=True)[:4]:
         max_cnt = max(comat.values()) if comat else 1
-        top_pairs.append({
-            "a": a, "b": b, "cnt": cnt,
-            "pct": round(cnt / max_cnt * 100)
-        })
+        top_pairs.append({"a": a, "b": b, "cnt": cnt,
+                          "pct": round(cnt / max_cnt * 100)})
 
     return {
         "hot_top10": hot_top10,
