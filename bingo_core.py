@@ -631,21 +631,43 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
         pair_strength[b] += cnt
     max_pair = max(pair_strength.values()) if pair_strength else 1
 
+    # ── 數對迭代學習權重 ─────────────────────────────────────────
+    # 從 bingo_learner 取歷史命中更新過的數對權重
+    import bingo_learner as _bl
+    pair_learn_w = _bl.get_pair_weights()   # {(a,b): float}
+
+    # 每個號碼的「數對學習加成」= 該號碼參與的所有數對的學習權重平均
+    pair_learn_bonus: dict[int, float] = {}
+    for n in BALL_RANGE:
+        related = []
+        for m in BALL_RANGE:
+            if m == n:
+                continue
+            key = (min(n, m), max(n, m))
+            if key in pair_learn_w:
+                related.append(pair_learn_w[key])
+        pair_learn_bonus[n] = sum(related) / len(related) if related else 1.0
+
+    # 正規化使平均為 1.0
+    avg_bonus = sum(pair_learn_bonus.values()) / len(pair_learn_bonus)
+    if avg_bonus > 0:
+        pair_learn_bonus = {n: v / avg_bonus for n, v in pair_learn_bonus.items()}
+
     # ── 綜合分數 ────────────────────────────────────────────────────
-    # 三層頻率歸一化後加權混合
-    # 短期（近期趨勢）×0.5 + 中期（統計穩定）×0.35 + 長期（基準修正）×0.15
-    # 再乘以：冷號補正 × 學習權重 × 關聯強度加成
+    # 三層頻率 × 冷號補正 × 號碼學習權重 × 共現強度 × 數對學習加成
     scores = {}
     for n in BALL_RANGE:
-        s_score = freq_s.get(n, 0) / exp_s      # 短期相對頻率
-        m_score = freq_m.get(n, 0) / exp_m      # 中期
-        l_score = freq_l.get(n, 0) / exp_l      # 長期
+        s_score = freq_s.get(n, 0) / exp_s
+        m_score = freq_m.get(n, 0) / exp_m
+        l_score = freq_l.get(n, 0) / exp_l
 
         combined = s_score * 0.50 + m_score * 0.35 + l_score * 0.15
         combined *= cold_bonus(n)
         combined *= learn_weights.get(n, 1.0)
-        # 關聯強度加成（上限 1.3 倍）
+        # 共現強度加成（上限 1.3 倍）
         combined *= min(1.3, 1.0 + 0.3 * pair_strength.get(n, 0) / max_pair)
+        # 數對迭代學習加成（上限 1.4 倍）
+        combined *= min(1.4, pair_learn_bonus.get(n, 1.0))
 
         scores[n] = max(combined, 0.001)
 

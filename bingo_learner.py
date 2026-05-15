@@ -44,6 +44,9 @@ def _default_state() -> dict:
             slot: {str(n): 0 for n in NUM_RANGE}
             for slot in SLOT_LABELS
         },
+        # 強力關聯數對的迭代學習權重
+        # key = "a,b"（a < b），value = float（>1 代表此對歷史命中率佳）
+        "pair_weights": {},
         # 每日學習記錄
         "history": [],
         "total_rounds": 0,
@@ -76,6 +79,16 @@ def get_weights() -> dict[int, float]:
     """回傳 {號碼: 學習權重}，供 smart_pick 使用"""
     state = load_state()
     return {int(k): v for k, v in state["weights"].items()}
+
+
+def get_pair_weights() -> dict[tuple, float]:
+    """回傳 {(a,b): 學習權重}，供 smart_pick 納入數對迭代分數"""
+    state = load_state()
+    result = {}
+    for key, w in state.get("pair_weights", {}).items():
+        a, b = map(int, key.split(","))
+        result[(a, b)] = w
+    return result
 
 
 # ── 核心學習邏輯 ──────────────────────────────────────────────────────────────
@@ -167,13 +180,27 @@ def daily_update(tracker_data: dict, df=None):
     total_nine_hits = 0
     round_count     = 0
 
-    # Step 2：昨日各快照的命中回饋，更新時段偏好
+    # Step 2：昨日各快照的命中回饋，更新時段偏好 + 數對學習
+    pair_weights = state.get("pair_weights", {})
+    PAIR_HIT_BONUS  = 1.15   # 數對同期命中 → 權重 ×1.15
+    PAIR_MISS_DECAY = 0.97   # 數對未同期命中 → 衰減
+    PAIR_MAX        = 3.0    # 數對權重上限
+    PAIR_MIN        = 0.3    # 數對權重下限
+
     for snap in yest_snaps:
         slot = snap.get("slot", "")
         if slot not in SLOT_LABELS:
             continue
         six  = snap.get("six",  [])
         nine = snap.get("nine", [])
+
+        # 建立本快照推薦的所有數對（6星+9星聯集）
+        all_rec = list(set(six + nine))
+        rec_pairs = []
+        for i in range(len(all_rec)):
+            for j in range(i + 1, len(all_rec)):
+                a, b = sorted([all_rec[i], all_rec[j]])
+                rec_pairs.append((a, b))
 
         for result in snap.get("results", []):
             six_hits  = result.get("six_hits",  0)
@@ -183,14 +210,30 @@ def daily_update(tracker_data: dict, df=None):
             round_count += 1
 
             # 命中越多 → 強化這些號碼在本時段的偏好
-            if six_hits >= 4:   # 6星有獎門檻
+            if six_hits >= 4:
                 for n in six:
                     state["slot_hits"][slot][str(n)] = \
                         state["slot_hits"][slot].get(str(n), 0) + six_hits
-            if nine_hits >= 6:  # 9星有獎門檻
+            if nine_hits >= 6:
                 for n in nine:
                     state["slot_hits"][slot][str(n)] = \
                         state["slot_hits"][slot].get(str(n), 0) + nine_hits
+
+            # 數對迭代學習：比對推薦數對是否在本期實際開獎中同時出現
+            # period 實際開獎號碼需從 df 取得（用 result 的 period 對照）
+            # 這裡用 six_hits + nine_hits 的高低作為代理信號：
+            # 命中數越高 → 推薦號碼整體表現好 → 強化所有推薦數對
+            hit_rate = (six_hits / 6 + nine_hits / 9) / 2  # 0.0~1.0
+            for (a, b) in rec_pairs:
+                key = f"{a},{b}"
+                w = pair_weights.get(key, 1.0)
+                if hit_rate >= 0.4:   # 整體命中率 ≥ 40%，視為數對表現佳
+                    w = min(PAIR_MAX, w * PAIR_HIT_BONUS)
+                else:
+                    w = max(PAIR_MIN, w * PAIR_MISS_DECAY)
+                pair_weights[key] = round(w, 4)
+
+    state["pair_weights"] = pair_weights
 
     # Step 3：將時段偏好平均融入全局權重（供預設推薦使用）
     base_weights = {int(k): v for k, v in state["weights"].items()}
