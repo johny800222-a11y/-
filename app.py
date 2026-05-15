@@ -586,8 +586,8 @@ def _539_weekly_learn():
 
 
 scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
-scheduler.add_job(_auto_update,           "cron", hour=21, minute=30)
-scheduler.add_job(_539_weekly_learn,      "cron", day_of_week="mon", hour=9, minute=0)
+scheduler.add_job(_auto_update,           "cron", day_of_week="mon-sat", hour=21, minute=0)
+scheduler.add_job(_539_weekly_learn,      "cron", day_of_week="mon-sat", hour=21, minute=5)
 scheduler.add_job(_bingo_auto_update,     "interval", minutes=5)
 # 每日投注快照（12:00 / 16:00 / 20:00）
 scheduler.add_job(_take_snapshot, "cron", hour=12, minute=0,  args=["12:00"])
