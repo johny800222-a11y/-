@@ -600,5 +600,24 @@ def _539_auto_init():
 threading.Thread(target=_539_auto_init, daemon=True).start()
 
 
+# 啟動補發：若今天 09:00 後尚未發送報告，則在啟動後 60 秒補發
+def _startup_catchup():
+    import time as _time
+    _time.sleep(60)  # 等資料載入完成
+    try:
+        tz = pytz.timezone("Asia/Taipei")
+        now = datetime.now(tz)
+        # 今天09:00是否已過，且還沒發過
+        today_str = now.strftime("%Y-%m-%d")
+        sent_today = _morning_log.get("last_run", "")
+        if now.hour >= 9 and not sent_today.startswith(today_str):
+            _morning_routine()
+    except Exception:
+        pass
+
+from datetime import datetime
+threading.Thread(target=_startup_catchup, daemon=True).start()
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", debug=False, port=5539)
