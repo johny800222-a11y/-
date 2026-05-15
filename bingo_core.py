@@ -500,6 +500,47 @@ def winrate_24h(df: pd.DataFrame) -> dict:
     return winrate_recent(df, window=30)
 
 
+# ── 三同數：三號共現組合 ─────────────────────────────────────────────────────
+
+def triplet_cooccurrence(df: pd.DataFrame, window: int = 200, top_n: int = 20) -> list[dict]:
+    """
+    統計最近 window 期，三個號碼同時出現在同一期的次數（三同數）。
+    只回傳前 top_n 組，計算量大，window 不宜過大。
+    """
+    recent = df.tail(window)
+    triplet_cnt: Counter = Counter()
+
+    for _, row in recent.iterrows():
+        nums = sorted(int(row[c]) for c in NUM_COLS)
+        # 只統計相鄰號碼的三連組（避免 C(20,3)=1140 組全算）
+        # 改為：取所有三組中，至少有一對差值 ≤ 10 的組合（熱門連帶模式）
+        for i in range(len(nums)):
+            for j in range(i + 1, len(nums)):
+                if nums[j] - nums[i] > 30:
+                    continue  # 距離太遠跳過
+                for k in range(j + 1, len(nums)):
+                    if nums[k] - nums[i] > 30:
+                        break
+                    triplet_cnt[(nums[i], nums[j], nums[k])] += 1
+
+    return [
+        {"a": a, "b": b, "c": c, "cnt": cnt}
+        for (a, b, c), cnt in triplet_cnt.most_common(top_n)
+    ]
+
+
+def consecutive_pair_freq(df: pd.DataFrame, window: int = 200) -> dict[tuple, int]:
+    """統計連號對（差值=1）的共現頻率"""
+    recent = df.tail(window)
+    consec: Counter = Counter()
+    for _, row in recent.iterrows():
+        nums = sorted(int(row[c]) for c in NUM_COLS)
+        for i in range(len(nums) - 1):
+            if nums[i + 1] - nums[i] == 1:
+                consec[(nums[i], nums[i + 1])] += 1
+    return dict(consec)
+
+
 # ── 二同數分析 ──────────────────────────────────────────────────────────────
 
 def same_tail_analysis(df: pd.DataFrame, window: int = 100) -> dict:
@@ -623,13 +664,30 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
             return 1.0 + min(1.5, (gap - cold_threshold) / cold_threshold)
         return 1.0
 
-    # ── 共現強度（中期視窗） ──────────────────────────────────────
+    # ── 二同數：兩號共現強度（中期視窗） ────────────────────────
     comat = cooccurrence_matrix(df, mid_w)
     pair_strength: dict[int, int] = Counter()
     for (a, b), cnt in comat.items():
         pair_strength[a] += cnt
         pair_strength[b] += cnt
     max_pair = max(pair_strength.values()) if pair_strength else 1
+
+    # ── 三同數：三號共現強度 ──────────────────────────────────
+    triplets = triplet_cooccurrence(df, window=mid_w, top_n=50)
+    triplet_strength: dict[int, int] = Counter()
+    for t in triplets:
+        triplet_strength[t["a"]] += t["cnt"]
+        triplet_strength[t["b"]] += t["cnt"]
+        triplet_strength[t["c"]] += t["cnt"]
+    max_triplet = max(triplet_strength.values()) if triplet_strength else 1
+
+    # ── 連號對頻率 ────────────────────────────────────────────
+    consec_freq = consecutive_pair_freq(df, window=mid_w)
+    consec_strength: dict[int, int] = Counter()
+    for (a, b), cnt in consec_freq.items():
+        consec_strength[a] += cnt
+        consec_strength[b] += cnt
+    max_consec = max(consec_strength.values()) if consec_strength else 1
 
     # ── 數對迭代學習權重 ─────────────────────────────────────────
     # 從 bingo_learner 取歷史命中更新過的數對權重
@@ -664,8 +722,12 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
         combined = s_score * 0.50 + m_score * 0.35 + l_score * 0.15
         combined *= cold_bonus(n)
         combined *= learn_weights.get(n, 1.0)
-        # 共現強度加成（上限 1.3 倍）
-        combined *= min(1.3, 1.0 + 0.3 * pair_strength.get(n, 0) / max_pair)
+        # 二同數：兩號共現強度加成（上限 1.25 倍）
+        combined *= min(1.25, 1.0 + 0.25 * pair_strength.get(n, 0) / max_pair)
+        # 三同數：三號共現強度加成（上限 1.2 倍）
+        combined *= min(1.20, 1.0 + 0.20 * triplet_strength.get(n, 0) / max_triplet)
+        # 連號頻率加成（上限 1.15 倍）
+        combined *= min(1.15, 1.0 + 0.15 * consec_strength.get(n, 0) / max_consec)
         # 數對迭代學習加成（上限 1.4 倍）
         combined *= min(1.4, pair_learn_bonus.get(n, 1.0))
 
@@ -699,6 +761,15 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
             "a": a, "b": b, "cnt": cnt,
             "pct": round(cnt / max_comat * 100)
         })
+
+    # 前5三同數組
+    top_triplets = triplets[:5]
+
+    # 前5連號對
+    top_consec = [
+        {"a": a, "b": b, "cnt": cnt}
+        for (a, b), cnt in sorted(consec_freq.items(), key=lambda x: x[1], reverse=True)[:5]
+    ]
 
     # 建立「被強力對覆蓋」的號碼集合
     # 策略：先鎖定最強的1~2對關聯數對作為核心，再區間平衡補足
@@ -774,11 +845,13 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
 
     return {
         "hot_top10":      hot_top10,
-        "top_pairs":      top_pairs[:4],              # 前4強力對（前端顯示）
+        "top_pairs":      top_pairs[:4],              # 前4二同數強力對
+        "top_triplets":   top_triplets,               # 前5三同數強力組
+        "top_consec":     top_consec,                 # 前5連號對
         "six":            sorted(six),
         "nine":           sorted(nine),
-        "six_pairs":      find_strong_pairs_in(six),  # 6星中含哪些強力對
-        "nine_pairs":     find_strong_pairs_in(nine), # 9星中含哪些強力對
+        "six_pairs":      find_strong_pairs_in(six),
+        "nine_pairs":     find_strong_pairs_in(nine),
         "scores": {
             "six_heat":   heat_score(six),
             "six_pair":   pair_score(six),
