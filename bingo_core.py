@@ -500,6 +500,50 @@ def winrate_24h(df: pd.DataFrame) -> dict:
     return winrate_recent(df, window=30)
 
 
+# ── 二同數分析 ──────────────────────────────────────────────────────────────
+
+def same_tail_analysis(df: pd.DataFrame, window: int = 100) -> dict:
+    """
+    分析最近 window 期的二同數（同尾數號碼）出現規律。
+    回傳：
+      hot_tails: 各尾數（0-9）產生二同的頻率，由高到低排序
+      avg_pairs: 每期平均二同組數
+      tail_pair_nums: 各尾數最熱的號碼（出現最多次）
+    """
+    recent = df.tail(window)
+    tail_pair_count = Counter()  # 各尾數產生二同的次數
+    tail_num_freq   = {t: Counter() for t in range(10)}  # 各尾數下各號碼頻次
+    pair_per_draw   = []
+
+    for _, row in recent.iterrows():
+        nums = [int(row[c]) for c in NUM_COLS]
+        tail_cnt = Counter(n % 10 for n in nums)
+        pairs = 0
+        for t, c in tail_cnt.items():
+            tail_num_freq[t].update(n for n in nums if n % 10 == t)
+            if c >= 2:
+                tail_pair_count[t] += 1
+                pairs += 1
+        pair_per_draw.append(pairs)
+
+    avg_pairs = sum(pair_per_draw) / len(pair_per_draw) if pair_per_draw else 6.5
+
+    hot_tails = sorted(range(10), key=lambda t: tail_pair_count[t], reverse=True)
+
+    # 各尾數下最熱的兩個號碼
+    tail_top2 = {}
+    for t in range(10):
+        top = [n for n, _ in tail_num_freq[t].most_common(2)]
+        tail_top2[t] = top
+
+    return {
+        "hot_tails":     hot_tails,          # 尾數由熱到冷
+        "tail_freq":     dict(tail_pair_count),
+        "avg_pairs":     round(avg_pairs, 1),
+        "tail_top2":     tail_top2,          # 各尾數前2熱號
+    }
+
+
 # ── 智慧選號 ────────────────────────────────────────────────────────────────
 
 def hot_numbers(df: pd.DataFrame, window: int = 30) -> list[dict]:
@@ -621,18 +665,56 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
 
     all_ranked = sorted(BALL_RANGE, key=lambda n: scores.get(n, 0), reverse=True)
 
-    # 6星：每區各取 1（4個），全域補 2 最高分
+    # ── 二同數分析：民間核心玩法 ─────────────────────────────────
+    # 每期平均有 6~7 組二同，選號必須包含至少 1 對同尾號碼
+    sta = same_tail_analysis(df, window=min(200, total_rows))
+    hot_tails = sta["hot_tails"]   # 尾數由熱到冷
+    tail_top2 = sta["tail_top2"]   # 各尾數前2熱號
+
+    def pick_same_tail_pair(tail, exclude):
+        """從指定尾數中選出得分最高的2個號碼（二同對）"""
+        candidates = sorted(
+            [n for n in BALL_RANGE if n % 10 == tail and n not in exclude],
+            key=lambda n: scores.get(n, 0), reverse=True
+        )
+        return candidates[:2]
+
+    # 6星：先從最熱尾數取一對二同（2個），再區間平衡補4個
     six = []
+    # 步驟1：最熱尾數二同對
+    for t in hot_tails:
+        pair = pick_same_tail_pair(t, set(six))
+        if len(pair) == 2:
+            six.extend(pair)
+            break
+    # 步驟2：區間平衡補足（確保4個區間各有覆蓋）
     for z in zones:
-        six.extend(best_from_zone(z, set(six), 1))
+        if len(six) >= 6:
+            break
+        picked = best_from_zone(z, set(six), 1)
+        six.extend(picked)
+    # 步驟3：若仍不足，從全域高分補
     for n in all_ranked:
         if len(six) >= 6:
             break
         if n not in six:
             six.append(n)
 
-    # 9星：6星基礎上每區再補 1（優先覆蓋缺少的區間），共 9 個
+    # 9星：在6星基礎上再加第二對二同 + 區間補足至9個
     nine = list(six)
+    # 加第二對二同（從次熱尾數選）
+    for t in hot_tails:
+        if len(nine) >= 9:
+            break
+        # 跳過已被6星使用的尾數對
+        existing_tails = [n % 10 for n in nine]
+        if existing_tails.count(t) >= 2:
+            continue
+        pair = pick_same_tail_pair(t, set(nine))
+        if len(pair) >= 1:
+            nine.extend(pair[:min(2, 9 - len(nine))])
+            if len(nine) >= 9:
+                break
     for z in zones:
         if len(nine) >= 9:
             break
@@ -662,11 +744,20 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
         top_pairs.append({"a": a, "b": b, "cnt": cnt,
                           "pct": round(cnt / max_cnt * 100)})
 
+    # 統計選出的二同對
+    def count_same_tail_pairs(nums):
+        tc = Counter(n % 10 for n in nums)
+        return [(t, [n for n in nums if n % 10 == t]) for t, c in tc.items() if c >= 2]
+
     return {
-        "hot_top10": hot_top10,
-        "top_pairs": top_pairs,
-        "six":       sorted(six),
-        "nine":      sorted(nine),
+        "hot_top10":       hot_top10,
+        "top_pairs":       top_pairs,
+        "six":             sorted(six),
+        "nine":            sorted(nine),
+        "six_same_tail":   count_same_tail_pairs(six),   # 6星中的二同對
+        "nine_same_tail":  count_same_tail_pairs(nine),  # 9星中的二同對
+        "hot_tails":       hot_tails[:5],                # 前5熱尾數
+        "avg_pairs_per_draw": sta["avg_pairs"],
         "scores": {
             "six_heat":  heat_score(six),
             "six_pair":  pair_score(six),
