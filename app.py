@@ -12,6 +12,7 @@ import learner
 import bingo_core
 import bingo_tracker
 import bingo_learner
+import prize_tracker
 
 app = Flask(__name__)
 
@@ -405,6 +406,42 @@ def api_bingo_send_report():
         return jsonify({"ok": False, "msg": str(e), "trace": traceback.format_exc()})
 
 
+@app.route("/api/prize/update", methods=["POST"])
+def api_prize_update():
+    """手動更新 539 中獎人數資料"""
+    try:
+        result = prize_tracker.update_prize_data()
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
+@app.route("/api/prize/report")
+def api_prize_report():
+    """查看中獎人數分析"""
+    try:
+        analysis = prize_tracker.find_low_winner_combinations()
+        data = prize_tracker.load_prize_data()
+        latest = sorted(data["records"], key=lambda r: r["period"])[-1] if data["records"] else {}
+        return jsonify({"ok": True, "latest": latest, "analysis": analysis,
+                        "total_records": len(data["records"]),
+                        "last_fetched": data.get("last_fetched")})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
+@app.route("/api/prize/send_report", methods=["POST"])
+def api_prize_send_report():
+    """手動觸發 TG 報告"""
+    try:
+        prize_tracker.update_prize_data()
+        text = prize_tracker.daily_report_text()
+        _send_telegram(text)
+        return jsonify({"ok": True, "tg_error": _morning_log.get("error")})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
 @app.route("/api/bingo/report")
 def api_bingo_report():
     df = bingo_core.load_data()
@@ -560,6 +597,17 @@ def _morning_routine():
         _morning_log.update(last_run=_tw_now(), result=None, error=traceback.format_exc())
 
 
+def _prize_report_routine():
+    """週一~週六 22:00：抓取最新中獎人數資料並傳送分析報告到 TG"""
+    try:
+        prize_tracker.update_prize_data()
+        text = prize_tracker.daily_report_text()
+        _send_telegram(text)
+    except Exception:
+        import traceback
+        _morning_log["error"] = traceback.format_exc()
+
+
 def _tw_now() -> str:
     return datetime.now(pytz.timezone("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -597,6 +645,8 @@ scheduler.add_job(_take_snapshot, "cron", hour=20, minute=0,  args=["20:00"])
 scheduler.add_job(_bingo_midnight_learn,  "cron", hour=0, minute=5)
 # 09:00 傳送每日 TG 報告
 scheduler.add_job(_morning_routine,       "cron", hour=9, minute=0)
+# 22:00 傳送 539 中獎人數分析報告
+scheduler.add_job(_prize_report_routine,  "cron", day_of_week="mon-sat", hour=22, minute=0)
 scheduler.start()
 
 # 啟動時若 Bingo 無資料則自動初始化（背景執行，不阻塞啟動）
