@@ -32,6 +32,8 @@ BACKUP_FILES = {
     "bingo_tracker":  _DATA_DIR / "bingo_invest.json",
     # 539 中獎人數分析資料
     "prize_tracker":  _DATA_DIR / "prize_tracker.json",
+    # Faker 策略追蹤（推薦記錄 + 命中歷史）
+    "faker_tracker":  _DATA_DIR / "faker_tracker.json",
 }
 
 
@@ -176,12 +178,12 @@ def restore_from_telegram(file_id: str = None) -> dict:
 
     # 還原檔案
     restored = []
-    for key, data in bundle.get("files", {}).items():
-        if data is None:
+    for key, file_data in bundle.get("files", {}).items():
+        if file_data is None:
             continue
         path = BACKUP_FILES.get(key)
         if path:
-            path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+            path.write_text(json.dumps(file_data, ensure_ascii=False, indent=2))
             restored.append(key)
 
     return {

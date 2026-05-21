@@ -222,6 +222,126 @@ def find_low_winner_combinations(top_n: int = 5) -> dict:
     }
 
 
+# ── Faker 策略 ───────────────────────────────────────────────────────────────
+
+FAKER_FILE = _DATA_DIR / "faker_tracker.json"
+
+
+def faker_pick(window: int = 100) -> list[int]:
+    """
+    Faker 策略：從真實中獎人數反推「玩家最不愛選」的 5 個號碼。
+
+    評分公式（分數越高 = 玩家越不選 = 台彩獲利越高）：
+      score(n) = 0.50 × (1 / avg_second_norm)   ← 二獎人數越少越好
+               + 0.30 × (1 / avg_jackpot_norm)  ← 頭獎越少越好
+               + 0.20 × avg_profit_rate_norm     ← 台彩獲利率越高越好
+
+    最終挑分數最高的 5 個號碼。
+    """
+    stats = analyze_low_winner_numbers(window=window)
+    if not stats:
+        return []
+
+    # 正規化各指標到 0~1
+    seconds      = [stats[n]["avg_second"]      for n in NUM_RANGE]
+    jackpots     = [stats[n]["avg_jackpot"]      for n in NUM_RANGE]
+    profit_rates = [stats[n]["avg_profit_rate"]  for n in NUM_RANGE]
+
+    def norm_inv(values, n_idx):
+        mn, mx = min(values), max(values)
+        v = values[n_idx]
+        if mx == mn:
+            return 0.5
+        return 1.0 - (v - mn) / (mx - mn)  # 反轉：值越小分數越高
+
+    def norm(values, n_idx):
+        mn, mx = min(values), max(values)
+        v = values[n_idx]
+        if mx == mn:
+            return 0.5
+        return (v - mn) / (mx - mn)
+
+    scores = {}
+    for i, n in enumerate(NUM_RANGE):
+        scores[n] = (
+            0.50 * norm_inv(seconds,      i) +
+            0.30 * norm_inv(jackpots,     i) +
+            0.20 * norm(profit_rates,     i)
+        )
+
+    # 取分數最高 5 個
+    picked = sorted(NUM_RANGE, key=lambda n: -scores[n])[:5]
+    return sorted(picked)
+
+
+def load_faker_tracker() -> dict:
+    if FAKER_FILE.exists():
+        try:
+            return json.loads(FAKER_FILE.read_text())
+        except Exception:
+            pass
+    return {"picks": [], "last_updated": None}
+
+
+def save_faker_tracker(data: dict):
+    FAKER_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def update_faker_pick() -> dict:
+    """
+    每日更新 Faker 推薦組合，並對上一期推薦做對獎。
+    回傳今日推薦 + 昨日命中數。
+    """
+    prize_data = load_prize_data()
+    records = sorted(prize_data["records"], key=lambda r: r["period"])
+    if not records:
+        return {}
+
+    latest    = records[-1]
+    tracker   = load_faker_tracker()
+    prev_picks = tracker.get("picks", [])
+    last_pick  = prev_picks[-1] if prev_picks else None
+
+    # 對昨日推薦做對獎
+    hits = 0
+    if last_pick:
+        actual = set(latest["numbers"])
+        hits   = len(set(last_pick["numbers"]) & actual)
+        # 回寫命中數
+        prev_picks[-1]["hits"]   = hits
+        prev_picks[-1]["actual"] = latest["numbers"]
+
+    # 產生今日推薦
+    today_nums = faker_pick()
+    prev_picks.append({
+        "date":    latest["date"],
+        "period":  latest["period"],
+        "numbers": today_nums,
+        "hits":    None,   # 待明日對獎
+        "actual":  None,
+    })
+    prev_picks = prev_picks[-60:]  # 保留最近 60 筆
+
+    # 統計歷史命中
+    settled = [p for p in prev_picks if p["hits"] is not None]
+    avg_hits = round(sum(p["hits"] for p in settled) / len(settled), 2) if settled else 0.0
+
+    tracker.update({
+        "picks":        prev_picks,
+        "last_updated": datetime.now(_TW).strftime("%Y-%m-%d %H:%M"),
+        "avg_hits":     avg_hits,
+        "total_rounds": len(settled),
+    })
+    save_faker_tracker(tracker)
+
+    return {
+        "today":      today_nums,
+        "last_hits":  hits,
+        "avg_hits":   avg_hits,
+        "rounds":     len(settled),
+    }
+
+
 # ── 每日報告 ─────────────────────────────────────────────────────────────────
 
 def daily_report_text() -> str:
@@ -233,19 +353,25 @@ def daily_report_text() -> str:
 
     # 最近一期
     latest = sorted(records, key=lambda r: r["period"])[-1]
-    analysis = find_low_winner_combinations()
-    num_stats = analysis.get("num_analysis", {})
+    num_stats = analyze_low_winner_numbers()
 
-    date_str = latest["date"]
-    nums_str = " ".join(f"{n:02d}" for n in latest["numbers"])
+    date_str    = latest["date"]
+    nums_str    = " ".join(f"{n:02d}" for n in latest["numbers"])
     profit_rate = round((latest["sell_amount"] - latest["total_prize"]) / max(latest["sell_amount"], 1) * 100, 1)
 
-    # 今日號碼的「中獎人數評分」
-    today_avg_second = sum(num_stats.get(n, {}).get("avg_second", 0) for n in latest["numbers"]) / 5
+    # Faker 策略：更新並取結果
+    faker = update_faker_pick()
+    faker_nums   = faker.get("today", [])
+    faker_hits   = faker.get("last_hits", 0)    # 昨日推薦的命中數
+    faker_avg    = faker.get("avg_hits", 0.0)
+    faker_rounds = faker.get("rounds", 0)
 
-    low_winners = analysis["low_winner_numbers"]
-    high_profit = analysis["high_profit_numbers"]
-    sweet_top = [str(n) for n, _ in analysis["top_numbers"][:8]]
+    # 昨日 Faker 是否有命中
+    tracker    = load_faker_tracker()
+    picks      = tracker.get("picks", [])
+    prev_pick  = picks[-2] if len(picks) >= 2 else None
+    prev_nums  = prev_pick["numbers"] if prev_pick else []
+    prev_hits  = prev_pick["hits"]    if prev_pick else None
 
     lines = [
         f"🎯 今彩539 中獎分析報告",
@@ -259,16 +385,27 @@ def daily_report_text() -> str:
         f"4️⃣ 四獎：{latest['fourth_count']} 注 × ${latest['fourth_prize']:,}",
         f"📊 台彩獲利率：{profit_rate}%",
         f"",
-        f"── 策略分析（近 {len(records)} 期）──",
-        f"🔵 出現時中獎人最少的號碼：",
-        f"   {' '.join(f'{n:02d}' for n in low_winners)}",
-        f"🟢 出現時台彩獲利最高的號碼：",
-        f"   {' '.join(f'{n:02d}' for n in high_profit)}",
-        f"⭐ 甜蜜點期別常見號碼（頭獎≤2注）：",
-        f"   {' '.join(sweet_top)}",
+        f"━━━━━ 🃏 Faker 策略 ━━━━━",
         f"",
-        f"📌 今日號碼平均二獎人數（歷史）：{today_avg_second:.0f} 注",
-        f"   {'✅ 低於平均，符合低人氣策略' if today_avg_second < 170 else '⚠️ 高於平均，熱門號碼期'}",
+    ]
+
+    # 昨日對獎結果
+    if prev_pick and prev_hits is not None:
+        hit_icons = "🎯" * prev_hits + "⬜" * (5 - prev_hits)
+        lines += [
+            f"昨日推薦：{' '.join(f'{n:02d}' for n in prev_nums)}",
+            f"實際開獎：{nums_str}",
+            f"命中：{hit_icons}  {prev_hits}/5 顆",
+            f"",
+        ]
+
+    # 今日推薦
+    lines += [
+        f"📌 今日 Faker 推薦（明日對獎）：",
+        f"   {'  '.join(f'{n:02d}' for n in faker_nums)}",
+        f"",
+        f"📈 歷史平均命中：{faker_avg} 顆／期（共 {faker_rounds} 期）",
+        f"   （539 隨機期望值：5×5/39 ≈ 0.64 顆）",
         f"",
         f"🕙 更新時間：{data.get('last_fetched', 'N/A')}",
     ]
