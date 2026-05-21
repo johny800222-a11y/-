@@ -621,6 +621,19 @@ def _morning_routine():
 
 
 
+def _faker_noon_report():
+    """每日 12:00 傳送 Faker 今日推薦到 TG"""
+    try:
+        nums = prize_tracker.faker_pick()
+        nums_str = "  ".join(f"{n:02d}" for n in nums)
+        from datetime import datetime
+        now = datetime.now(pytz.timezone("Asia/Taipei")).strftime("%Y-%m-%d")
+        text = f"🃏 Faker 今日推薦\n📅 {now}\n\n{nums_str}\n\n（台彩獲利最高組合）"
+        _send_telegram(text)
+    except Exception:
+        pass
+
+
 def _prize_report_routine():
     """週一~週六 22:00：抓取最新中獎人數資料並傳送分析報告到 TG"""
     try:
@@ -668,6 +681,8 @@ scheduler.add_job(_take_snapshot, "cron", hour=20, minute=0,  args=["20:00"])
 scheduler.add_job(_bingo_midnight_learn,  "cron", hour=0, minute=5)
 # 09:00 傳送每日 TG 報告
 scheduler.add_job(_morning_routine,       "cron", hour=9, minute=0)
+# 每日 12:00 傳送 Faker 推薦
+scheduler.add_job(_faker_noon_report,     "cron", day_of_week="mon-sat", hour=12, minute=0)
 # 22:00 傳送 539 中獎人數分析報告
 scheduler.add_job(_prize_report_routine,  "cron", day_of_week="mon-sat", hour=22, minute=0)
 scheduler.start()
