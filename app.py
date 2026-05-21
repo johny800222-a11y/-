@@ -17,7 +17,7 @@ import prize_tracker
 app = Flask(__name__)
 
 # 全量抓取進度
-_fetch_state = {"running": False, "page": 0, "total": core.TOTAL_PAGES, "error": ""}
+_fetch_state = {"running": False, "page": 0, "total": 256, "error": ""}
 
 # 推薦快取（主推薦 + 策略推薦），同一期不重複產生
 _rec_file      = core.DATA_FILE.parent / "current_rec.json"

@@ -17,7 +17,7 @@ import pandas as pd
 _DATA_DIR   = Path("/data") if Path("/data").exists() else Path(__file__).parent
 DATA_FILE   = _DATA_DIR / "539_history.csv"
 BASE_URL    = "https://www.pilio.idv.tw/lto539/list539BIG.asp"
-TOTAL_PAGES = 59
+TOTAL_PAGES = 256  # 動態：2026-05 實際頁數，每年約增加 25 頁
 SLEEP_SEC   = 0.4
 HEADERS     = {"User-Agent": "Mozilla/5.0 (compatible; lottery539-app/1.0)"}
 BALL_COLS   = ["n1", "n2", "n3", "n4", "n5"]
@@ -56,13 +56,27 @@ def _fetch_page(page: int) -> list[dict]:
     return records
 
 
+def get_total_pages() -> int:
+    """動態偵測 pilio 目前總頁數"""
+    try:
+        resp = requests.get(f"{BASE_URL}?indexpage=1&orderby=old", headers=HEADERS, timeout=15)
+        resp.encoding = "big5"
+        pages = re.findall(r'indexpage=(\d+)', resp.text)
+        if pages:
+            return max(int(p) for p in pages)
+    except Exception:
+        pass
+    return TOTAL_PAGES
+
+
 def fetch_all(progress_cb=None) -> pd.DataFrame:
+    total = get_total_pages()
     all_records = []
-    for page in range(1, TOTAL_PAGES + 1):
+    for page in range(1, total + 1):
         try:
             all_records.extend(_fetch_page(page))
             if progress_cb:
-                progress_cb(page, TOTAL_PAGES)
+                progress_cb(page, total)
             time.sleep(SLEEP_SEC)
         except Exception:
             pass
@@ -76,7 +90,9 @@ def fetch_all(progress_cb=None) -> pd.DataFrame:
 
 def update_latest() -> tuple[pd.DataFrame, bool]:
     df = pd.read_csv(DATA_FILE, parse_dates=["date"])
-    new_records = _fetch_page(TOTAL_PAGES)
+    last_page = get_total_pages()
+    # 抓最後兩頁確保不遺漏跨頁資料
+    new_records = _fetch_page(last_page - 1) + _fetch_page(last_page)
     new_df = pd.DataFrame(new_records)
     new_df["date"] = pd.to_datetime(new_df["date"])
     combined = pd.concat([df, new_df]).drop_duplicates("date").sort_values("date").reset_index(drop=True)
