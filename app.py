@@ -4,7 +4,7 @@
 
 import json
 import threading
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 import core
@@ -13,6 +13,7 @@ import bingo_core
 import bingo_tracker
 import bingo_learner
 import prize_tracker
+import backup_manager
 
 app = Flask(__name__)
 
@@ -406,6 +407,26 @@ def api_bingo_send_report():
         return jsonify({"ok": False, "msg": str(e), "trace": traceback.format_exc()})
 
 
+@app.route("/api/backup", methods=["POST"])
+def api_backup():
+    """手動觸發備份"""
+    result = backup_manager.send_backup_to_telegram()
+    return jsonify(result)
+
+
+@app.route("/api/backup/status")
+def api_backup_status():
+    return jsonify(backup_manager.get_status())
+
+
+@app.route("/api/backup/restore", methods=["POST"])
+def api_backup_restore():
+    """從最新備份還原（或指定 file_id）"""
+    file_id = request.json.get("file_id") if request.is_json else None
+    result = backup_manager.restore_from_telegram(file_id)
+    return jsonify(result)
+
+
 @app.route("/api/prize/update", methods=["POST"])
 def api_prize_update():
     """手動更新 539 中獎人數資料"""
@@ -597,6 +618,14 @@ def _morning_routine():
         _morning_log.update(last_run=_tw_now(), result=None, error=traceback.format_exc())
 
 
+def _daily_backup():
+    """每日 01:00 自動備份所有學習資料到 Telegram"""
+    try:
+        backup_manager.send_backup_to_telegram()
+    except Exception:
+        pass
+
+
 def _prize_report_routine():
     """週一~週六 22:00：抓取最新中獎人數資料並傳送分析報告到 TG"""
     try:
@@ -643,6 +672,8 @@ scheduler.add_job(_take_snapshot, "cron", hour=16, minute=0,  args=["16:00"])
 scheduler.add_job(_take_snapshot, "cron", hour=20, minute=0,  args=["20:00"])
 # 00:00 Bingo 迭代學習（開獎 07:05~23:55 結束後）
 scheduler.add_job(_bingo_midnight_learn,  "cron", hour=0, minute=5)
+# 每日 01:00 備份學習資料到 Telegram
+scheduler.add_job(_daily_backup,          "cron", hour=1, minute=0)
 # 09:00 傳送每日 TG 報告
 scheduler.add_job(_morning_routine,       "cron", hour=9, minute=0)
 # 22:00 傳送 539 中獎人數分析報告
