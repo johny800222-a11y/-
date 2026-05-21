@@ -102,24 +102,29 @@ def fetch_prize_records(month: str = None, page_size: int = 30) -> list[dict]:
     return records
 
 
-def update_prize_data() -> dict:
-    """更新本月+上月資料，合併存檔"""
+def update_prize_data(months_back: int = 2) -> dict:
+    """更新中獎人數資料，預設抓近 2 個月，首次執行自動補抓 12 個月"""
     now = datetime.now(_TW)
-    this_month = now.strftime("%Y-%m")
-    last_month = (now.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
-
     existing = load_prize_data()
     existing_periods = {r["period"] for r in existing["records"]}
 
+    # 若資料不足 100 筆，自動補抓 12 個月歷史
+    if len(existing["records"]) < 100:
+        months_back = 12
+
+    months = []
+    for i in range(months_back):
+        d = now.replace(day=1) - timedelta(days=i * 28)
+        months.append(d.strftime("%Y-%m"))
+
     new_records = []
-    for month in [last_month, this_month]:
-        for rec in fetch_prize_records(month, page_size=50):
+    for month in months:
+        for rec in fetch_prize_records(month, page_size=60):
             if rec["period"] not in existing_periods:
                 new_records.append(rec)
                 existing_periods.add(rec["period"])
 
     existing["records"].extend(new_records)
-    # 保留最近 500 期
     existing["records"] = sorted(existing["records"], key=lambda r: r["period"])[-500:]
     existing["last_fetched"] = now.strftime("%Y-%m-%d %H:%M")
     save_prize_data(existing)
