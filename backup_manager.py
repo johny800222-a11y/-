@@ -22,11 +22,15 @@ _TW = pytz.timezone("Asia/Taipei")
 _DATA_DIR = Path("/data") if Path("/data").exists() else Path(__file__).parent
 BACKUP_META_FILE = _DATA_DIR / "backup_meta.json"
 
-# 備份的目標檔案
+# 備份的目標檔案（所有演算法迭代學習資料）
 BACKUP_FILES = {
+    # 539 迭代學習權重（號碼命中率加成/懲罰，每期對獎後更新）
+    "lottery_learn":  _DATA_DIR / "learn_state.json",
+    # Bingo 迭代學習權重（熱度+冷號+時段偏好+關聯數對）
     "bingo_learn":    _DATA_DIR / "bingo_learn.json",
-    "bingo_tracker":  _DATA_DIR / "bingo_tracker.json",
-    "lottery_learn":  _DATA_DIR / "lottery539_learn.json",
+    # Bingo 投注快照記錄（對獎依據）
+    "bingo_tracker":  _DATA_DIR / "bingo_invest.json",
+    # 539 中獎人數分析資料
     "prize_tracker":  _DATA_DIR / "prize_tracker.json",
 }
 

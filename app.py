@@ -584,7 +584,7 @@ def _send_telegram(text: str):
 
 
 def _bingo_midnight_learn():
-    """每日 00:00：Bingo 全日開獎結束，結算快照 + 迭代更新學習權重"""
+    """每日 00:05：Bingo 全日開獎結束，結算快照 + 迭代更新學習權重 + 備份"""
     import traceback
     try:
         df = bingo_core.load_data()
@@ -593,6 +593,8 @@ def _bingo_midnight_learn():
         data = bingo_tracker.settle_snapshots(df)
         result = bingo_learner.daily_update(data, df)
         _morning_log.update(last_run=_tw_now(), result=result, error=None)
+        # 迭代完成後立刻備份
+        backup_manager.send_backup_to_telegram()
     except Exception:
         import traceback as tb
         _morning_log.update(last_run=_tw_now(), result=None, error=tb.format_exc())
@@ -618,13 +620,6 @@ def _morning_routine():
         _morning_log.update(last_run=_tw_now(), result=None, error=traceback.format_exc())
 
 
-def _daily_backup():
-    """每日 01:00 自動備份所有學習資料到 Telegram"""
-    try:
-        backup_manager.send_backup_to_telegram()
-    except Exception:
-        pass
-
 
 def _prize_report_routine():
     """週一~週六 22:00：抓取最新中獎人數資料並傳送分析報告到 TG"""
@@ -642,22 +637,21 @@ def _tw_now() -> str:
 
 
 def _539_weekly_learn():
-    """每週一 09:00 對 539 做深度學習迭代"""
-    import traceback
+    """週一~週六 21:05 對 539 做迭代學習 + 備份"""
     try:
         df = core.load_data()
         if df is None or df.empty:
             return
-        # 取最近一期實際開獎，對上週推薦做學習
         cached = _load_rec()
         old_best = cached.get("best", [])
         if old_best:
             learner.auto_update_from_df(df, old_best, old_best)
-        # 重新產生本期推薦並快取
         weights = learner.get_weights()
         best = core.recommend_best(df, weights)
         latest_date = df["date"].max().strftime("%Y-%m-%d")
         _save_rec(latest_date, best)
+        # 迭代完成後立刻備份
+        backup_manager.send_backup_to_telegram()
     except Exception:
         pass
 
@@ -672,8 +666,6 @@ scheduler.add_job(_take_snapshot, "cron", hour=16, minute=0,  args=["16:00"])
 scheduler.add_job(_take_snapshot, "cron", hour=20, minute=0,  args=["20:00"])
 # 00:00 Bingo 迭代學習（開獎 07:05~23:55 結束後）
 scheduler.add_job(_bingo_midnight_learn,  "cron", hour=0, minute=5)
-# 每日 01:00 備份學習資料到 Telegram
-scheduler.add_job(_daily_backup,          "cron", hour=1, minute=0)
 # 09:00 傳送每日 TG 報告
 scheduler.add_job(_morning_routine,       "cron", hour=9, minute=0)
 # 22:00 傳送 539 中獎人數分析報告
