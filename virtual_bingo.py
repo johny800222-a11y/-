@@ -30,6 +30,9 @@ _DATA_DIR = Path("/data") if Path("/data").exists() else Path(__file__).parent
 USERS_FILE     = _DATA_DIR / "virtual_users.json"
 BETS_FILE      = _DATA_DIR / "virtual_bets.json"
 CHAMPIONS_FILE = _DATA_DIR / "weekly_champions.json"
+CHAT_FILE      = _DATA_DIR / "virtual_chat.json"
+
+CHAT_MAX_MSG   = 200   # 最多保留幾則訊息
 
 UNIT_PRICE       = 25       # NT$25 每注（台彩官方）
 STARTING_BALANCE = 10_000   # NT$10,000 初始資金
@@ -640,3 +643,105 @@ def get_weekly_champions(limit: int = 20) -> list:
     """取最近 N 週的冠軍記錄"""
     data = _load_champions()
     return data["champions"][:limit]
+
+
+# ── 聊天室 ────────────────────────────────────────────────────────────────────
+
+def _load_chat() -> dict:
+    if CHAT_FILE.exists():
+        try:
+            return json.loads(CHAT_FILE.read_text())
+        except Exception:
+            pass
+    return {"messages": []}
+
+def _save_chat(data: dict):
+    CHAT_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+# 表情符號白名單（快速回應按鈕用）
+CHAT_REACTIONS = ["👍", "🎯", "🔥", "😂", "😮", "💰", "🍀", "😭"]
+
+def send_chat(user_id: str, text: str, msg_type: str = "text") -> dict:
+    """
+    發送聊天訊息
+    msg_type: "text" | "system"（系統通知）
+    """
+    text = text.strip()
+    if not text:
+        return {"ok": False, "msg": "訊息不可空白"}
+    if len(text) > 200:
+        return {"ok": False, "msg": "訊息最多 200 字"}
+
+    user = get_user(user_id)
+    if not user:
+        return {"ok": False, "msg": "帳號不存在"}
+
+    data = _load_chat()
+    msg_id = str(uuid.uuid4())[:8].upper()
+    msg = {
+        "id":        msg_id,
+        "user_id":   user_id,
+        "name":      user["name"],
+        "text":      text,
+        "type":      msg_type,
+        "reactions": {},   # {"👍": ["uid1","uid2"], ...}
+        "created_at": _tw_now(),
+    }
+    data["messages"].append(msg)
+    # 超過上限時裁切舊訊息
+    if len(data["messages"]) > CHAT_MAX_MSG:
+        data["messages"] = data["messages"][-CHAT_MAX_MSG:]
+    _save_chat(data)
+    return {"ok": True, "msg_id": msg_id}
+
+
+def get_chat(limit: int = 50, since_id: str = None) -> list:
+    """
+    取最近訊息（新→舊），若指定 since_id 只回傳該 id 之後的新訊息
+    """
+    data = _load_chat()
+    msgs = data["messages"]
+    if since_id:
+        ids = [m["id"] for m in msgs]
+        if since_id in ids:
+            idx = ids.index(since_id)
+            msgs = msgs[idx+1:]
+    return msgs[-limit:]   # 回傳最新 N 則
+
+
+def add_reaction(user_id: str, msg_id: str, emoji: str) -> dict:
+    """對某則訊息加/取消表情回應（toggle）"""
+    if emoji not in CHAT_REACTIONS:
+        return {"ok": False, "msg": "不支援的表情"}
+    user = get_user(user_id)
+    if not user:
+        return {"ok": False, "msg": "帳號不存在"}
+    data = _load_chat()
+    for m in data["messages"]:
+        if m["id"] == msg_id:
+            m.setdefault("reactions", {})
+            m["reactions"].setdefault(emoji, [])
+            if user_id in m["reactions"][emoji]:
+                m["reactions"][emoji].remove(user_id)   # 取消
+            else:
+                m["reactions"][emoji].append(user_id)   # 新增
+            _save_chat(data)
+            return {"ok": True, "reactions": m["reactions"]}
+    return {"ok": False, "msg": "找不到訊息"}
+
+
+def delete_chat_msg(user_id: str, msg_id: str) -> dict:
+    """刪除自己的訊息（或管理員刪任意訊息）"""
+    user = get_user(user_id)
+    if not user:
+        return {"ok": False, "msg": "帳號不存在"}
+    data = _load_chat()
+    for i, m in enumerate(data["messages"]):
+        if m["id"] == msg_id:
+            if m["user_id"] != user_id and not user.get("is_admin"):
+                return {"ok": False, "msg": "只能刪自己的訊息"}
+            data["messages"].pop(i)
+            _save_chat(data)
+            return {"ok": True}
+    return {"ok": False, "msg": "找不到訊息"}

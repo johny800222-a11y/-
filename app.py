@@ -568,6 +568,47 @@ def api_virtual_save_weekly_champion():
     return jsonify(result)
 
 
+# ── Chat ──────────────────────────────────────────────────────────────────────
+
+@app.route("/api/virtual/chat")
+def api_virtual_chat_get():
+    limit    = int(request.args.get("limit", 50))
+    since_id = request.args.get("since_id", None)
+    msgs = virtual_bingo.get_chat(limit=limit, since_id=since_id)
+    return jsonify({"messages": msgs})
+
+
+@app.route("/api/virtual/chat", methods=["POST"])
+def api_virtual_chat_send():
+    data = request.get_json() or {}
+    result = virtual_bingo.send_chat(
+        data.get("user_id", ""),
+        data.get("text", ""),
+    )
+    return jsonify(result)
+
+
+@app.route("/api/virtual/chat/reaction", methods=["POST"])
+def api_virtual_chat_reaction():
+    data = request.get_json() or {}
+    result = virtual_bingo.add_reaction(
+        data.get("user_id", ""),
+        data.get("msg_id", ""),
+        data.get("emoji", ""),
+    )
+    return jsonify(result)
+
+
+@app.route("/api/virtual/chat/delete", methods=["POST"])
+def api_virtual_chat_delete():
+    data = request.get_json() or {}
+    result = virtual_bingo.delete_chat_msg(
+        data.get("user_id", ""),
+        data.get("msg_id", ""),
+    )
+    return jsonify(result)
+
+
 # ── Prize ─────────────────────────────────────────────────────────────────────
 
 @app.route("/api/prize/update", methods=["POST"])
