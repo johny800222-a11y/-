@@ -14,6 +14,7 @@ import bingo_tracker
 import bingo_learner
 import prize_tracker
 import backup_manager
+import virtual_bingo
 
 app = Flask(__name__)
 
@@ -427,6 +428,148 @@ def api_backup_restore():
     return jsonify(result)
 
 
+# ── Virtual Bingo ─────────────────────────────────────────────────────────────
+
+@app.route("/virtual")
+def virtual_index():
+    return render_template("virtual_bingo.html")
+
+
+@app.route("/api/virtual/users")
+def api_virtual_users():
+    users = virtual_bingo.list_users()
+    return jsonify({"users": users})
+
+
+@app.route("/api/virtual/login", methods=["POST"])
+def api_virtual_login():
+    data = request.get_json() or {}
+    user = virtual_bingo.verify_login(data.get("user_id",""), data.get("password",""))
+    if user:
+        stats = virtual_bingo.get_user_stats(user["id"])
+        return jsonify({"ok": True, "user": {**user, **stats, "user_id": user["id"]}})
+    return jsonify({"ok": False, "msg": "帳號或密碼錯誤"})
+
+
+@app.route("/api/virtual/stats")
+def api_virtual_stats():
+    uid = request.args.get("user_id","")
+    stats = virtual_bingo.get_user_stats(uid)
+    if not stats:
+        return jsonify({"ok": False, "msg": "帳號不存在"})
+    return jsonify({"ok": True, "stats": stats})
+
+
+@app.route("/api/virtual/bet", methods=["POST"])
+def api_virtual_bet():
+    data = request.get_json() or {}
+    result = virtual_bingo.place_bet(
+        user_id        = data.get("user_id",""),
+        bet_type       = data.get("bet_type","直玩"),
+        pick_count     = int(data.get("pick_count", 5)),
+        balls          = data.get("balls", []),
+        dan_balls      = data.get("dan_balls", []),
+        tuo_balls      = data.get("tuo_balls", []),
+        multiplier     = int(data.get("multiplier", 1)),
+        repeat_draws   = int(data.get("repeat_draws", 1)),
+        current_period = str(data.get("current_period", "")),
+    )
+    return jsonify(result)
+
+
+@app.route("/api/virtual/bets")
+def api_virtual_bets():
+    uid    = request.args.get("user_id","")
+    status = request.args.get("status","all")
+    bets   = virtual_bingo.get_user_bets(uid, limit=60,
+                status=None if status=="all" else status)
+    return jsonify({"ok": True, "bets": bets})
+
+
+@app.route("/api/virtual/leaderboard")
+def api_virtual_leaderboard():
+    return jsonify({"ok": True, "board": virtual_bingo.get_leaderboard()})
+
+
+@app.route("/api/virtual/latest_draw")
+def api_virtual_latest_draw():
+    """取最新一期 Bingo 開獎號碼（供投注介面顯示）"""
+    try:
+        df = bingo_core.load_data()
+        if df is None or df.empty:
+            return jsonify({"ok": False})
+        latest = df.iloc[-1]
+        period = str(int(float(latest["period"])))
+        ball_cols = [c for c in df.columns if c.startswith("ball")]
+        balls = [int(latest[c]) for c in ball_cols if c in latest.index and latest[c] > 0]
+        return jsonify({"ok": True, "period": period, "balls": balls[:20]})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
+@app.route("/api/virtual/init", methods=["POST"])
+def api_virtual_init():
+    """初始化帳號（僅首次執行）"""
+    data = request.get_json() or {}
+    accounts = data.get("accounts", [])
+    if not accounts:
+        return jsonify({"ok": False, "msg": "請提供 accounts 清單"})
+    result = virtual_bingo.init_users(accounts)
+    return jsonify(result)
+
+
+@app.route("/api/virtual/reset_balance", methods=["POST"])
+def api_virtual_reset_balance():
+    """管理員重置餘額"""
+    data = request.get_json() or {}
+    result = virtual_bingo.reset_user_balance(
+        data.get("user_id",""), int(data.get("amount", 10000))
+    )
+    return jsonify(result)
+
+
+@app.route("/api/virtual/settle", methods=["POST"])
+def api_virtual_settle():
+    """手動觸發結算（測試用）"""
+    try:
+        df = bingo_core.load_data()
+        result = virtual_bingo.auto_settle_from_df(df)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
+@app.route("/api/virtual/change_name", methods=["POST"])
+def api_virtual_change_name():
+    data = request.get_json() or {}
+    result = virtual_bingo.change_name(data.get("user_id", ""), data.get("name", ""))
+    return jsonify(result)
+
+
+@app.route("/api/virtual/change_password", methods=["POST"])
+def api_virtual_change_pw():
+    data = request.get_json() or {}
+    result = virtual_bingo.change_password(
+        data.get("user_id",""), data.get("old_password",""), data.get("new_password","")
+    )
+    return jsonify(result)
+
+
+@app.route("/api/virtual/weekly_champions")
+def api_virtual_weekly_champions():
+    """取最近 20 週冠軍記錄"""
+    return jsonify(virtual_bingo.get_weekly_champions(20))
+
+
+@app.route("/api/virtual/save_weekly_champion", methods=["POST"])
+def api_virtual_save_weekly_champion():
+    """手動觸發週冠軍快照（管理員用）"""
+    result = virtual_bingo.save_weekly_champion()
+    return jsonify(result)
+
+
+# ── Prize ─────────────────────────────────────────────────────────────────────
+
 @app.route("/api/prize/update", methods=["POST"])
 def api_prize_update():
     """手動更新 539 中獎人數資料"""
@@ -538,6 +681,11 @@ def _bingo_auto_update():
         df2 = bingo_core.load_data()
         if df2 is not None and not df2.empty:
             bingo_tracker.settle_snapshots(df2)
+            # 同步結算虛擬投注
+            try:
+                virtual_bingo.auto_settle_from_df(df2)
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -685,6 +833,8 @@ scheduler.add_job(_morning_routine,       "cron", hour=9, minute=0)
 scheduler.add_job(_faker_noon_report,     "cron", day_of_week="mon-sat", hour=12, minute=0)
 # 22:00 傳送 539 中獎人數分析報告
 scheduler.add_job(_prize_report_routine,  "cron", day_of_week="mon-sat", hour=22, minute=0)
+# 每週一 00:05 快照週冠軍排行
+scheduler.add_job(virtual_bingo.save_weekly_champion, "cron", day_of_week="mon", hour=0, minute=5)
 scheduler.start()
 
 # 啟動時若 Bingo 無資料則自動初始化（背景執行，不阻塞啟動）

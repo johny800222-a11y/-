@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🎯 虛擬 Bingo 投注</title>
+<style>
+:root{--bg:#0a0a1a;--card:#12122a;--card2:#1a1a35;--accent:#6c63ff;--accent2:#ff6b9d;--green:#00e676;--red:#ff5252;--yellow:#ffd740;--orange:#ff9800;--text:#e0e0f0;--muted:#8888aa;--border:#2a2a4a}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',sans-serif;min-height:100vh}
+
+/* LOGIN */
+#login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+.login-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px;width:100%;max-width:380px;text-align:center}
+.login-card h1{font-size:2rem;margin-bottom:8px}
+.login-card p{color:var(--muted);margin-bottom:28px}
+.inp{width:100%;padding:11px 14px;background:var(--card2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:1rem;margin-bottom:12px}
+.inp:focus{outline:none;border-color:var(--accent)}
+
+/* BUTTONS */
+.btn{display:inline-block;padding:11px 22px;border-radius:8px;border:none;font-size:.95rem;font-weight:600;cursor:pointer;transition:.2s}
+.btn-primary{background:var(--accent);color:#fff;width:100%}
+.btn-primary:hover{filter:brightness(1.15)}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.btn-sm{padding:5px 13px;font-size:.82rem;border-radius:6px}
+.btn-gray{background:var(--card2);color:var(--text);border:1px solid var(--border)}
+.btn-gray:hover{border-color:var(--accent)}
+.error-msg{font-size:.88rem;margin-top:6px;min-height:18px}
+.err{color:var(--red)} .ok-msg{color:var(--green)}
+
+/* HEADER */
+#main-screen{display:none}
+header{background:var(--card);border-bottom:1px solid var(--border);padding:11px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.header-left{display:flex;align-items:center;gap:10px}
+.header-left h2{font-size:1.05rem}
+.balance-chip{background:var(--card2);border:1px solid var(--green);border-radius:20px;padding:3px 13px;font-size:.92rem;color:var(--green);font-weight:700}
+.pnl-chip{border-radius:20px;padding:3px 13px;font-size:.82rem;font-weight:600}
+.pnl-pos{background:#00e67620;border:1px solid var(--green);color:var(--green)}
+.pnl-neg{background:#ff525220;border:1px solid var(--red);color:var(--red)}
+
+/* DRAW BAR */
+.draw-bar{background:linear-gradient(135deg,#1a1a35,#0d1a2e);border-bottom:1px solid var(--border);padding:9px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:.88rem}
+.draw-balls{display:flex;gap:3px;flex-wrap:wrap}
+.ball{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;font-size:.72rem;font-weight:700}
+.ball-drawn{background:var(--accent);color:#fff}
+.ball-super{background:var(--yellow);color:#000}
+.countdown{margin-left:auto;color:var(--yellow);font-weight:700}
+
+/* TABS */
+.tabs{display:flex;background:var(--card);border-bottom:1px solid var(--border);overflow-x:auto}
+.tab{flex:none;padding:11px 14px;text-align:center;cursor:pointer;font-size:.88rem;color:var(--muted);transition:.2s;border-bottom:3px solid transparent;white-space:nowrap}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-content{display:none;padding:14px 16px;max-width:860px;margin:0 auto}
+.tab-content.active{display:block}
+
+/* SECTION */
+.section{background:var(--card);border:1px solid var(--border);border-radius:11px;padding:14px;margin-bottom:14px}
+.section h3{font-size:.82rem;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em}
+
+/* PLAY TYPE BUTTONS */
+.type-group{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+.type-label{font-size:.75rem;color:var(--muted);margin-bottom:4px}
+.type-btn{padding:7px 16px;border-radius:18px;border:2px solid var(--border);background:transparent;color:var(--text);cursor:pointer;font-size:.88rem;transition:.2s}
+.type-btn.active{border-color:var(--accent);background:var(--accent);color:#fff}
+
+/* STAR BTNS */
+.pick-btns{display:flex;gap:5px;flex-wrap:wrap}
+.pick-btn{width:40px;height:34px;border-radius:7px;border:1px solid var(--border);background:var(--card2);color:var(--text);cursor:pointer;font-size:.88rem;transition:.15s}
+.pick-btn.active{border-color:var(--accent);background:var(--accent);color:#fff}
+
+/* NUMBER GRID */
+.num-grid{display:grid;grid-template-columns:repeat(10,1fr);gap:4px;margin-top:6px}
+@media(max-width:480px){.num-grid{grid-template-columns:repeat(8,1fr)}}
+.num-btn{aspect-ratio:1;border-radius:7px;border:1px solid var(--border);background:var(--card2);color:var(--text);cursor:pointer;font-size:.75rem;font-weight:600;transition:.12s;display:flex;align-items:center;justify-content:center}
+.num-btn:hover{border-color:var(--accent)}
+.num-btn.sel-ball{border-color:var(--accent2);background:var(--accent2);color:#fff}
+.num-btn.sel-dan{border-color:var(--yellow);background:var(--yellow);color:#000}
+.num-btn.sel-tuo{border-color:var(--green);background:var(--green);color:#000}
+
+/* DAN TUO */
+.dantuo-row{display:flex;gap:8px;margin-bottom:8px}
+.dt-btn{padding:5px 14px;border-radius:6px;border:2px solid var(--border);background:transparent;cursor:pointer;font-size:.83rem;color:var(--text);transition:.2s}
+.dt-btn.active-dan{border-color:var(--yellow);background:var(--yellow);color:#000}
+.dt-btn.active-tuo{border-color:var(--green);background:var(--green);color:#000}
+
+/* BIG/SMALL ODD/EVEN */
+.choice-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+.choice-card{padding:20px 10px;border-radius:10px;border:2px solid var(--border);background:var(--card2);text-align:center;cursor:pointer;transition:.2s}
+.choice-card h4{font-size:1.2rem;margin-bottom:4px}
+.choice-card p{font-size:.75rem;color:var(--muted)}
+.choice-card.active{border-color:var(--accent);background:#6c63ff22}
+
+/* CHIPS */
+.chips-row{display:flex;flex-wrap:wrap;gap:5px;min-height:26px;margin-top:6px}
+.chip{display:inline-flex;align-items:center;gap:3px;padding:2px 9px;border-radius:11px;font-size:.78rem;font-weight:700}
+.chip-ball{background:#6c63ff22;border:1px solid var(--accent);color:var(--accent)}
+.chip-dan{background:#ffd74022;border:1px solid var(--yellow);color:var(--yellow)}
+.chip-tuo{background:#00e67622;border:1px solid var(--green);color:var(--green)}
+.chip-rm{cursor:pointer;opacity:.55}
+.chip-rm:hover{opacity:1}
+
+/* MULTIPLIER */
+.mult-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mult-row label{color:var(--muted);font-size:.88rem;white-space:nowrap}
+.mult-row input[type=range]{flex:1;min-width:100px;accent-color:var(--accent)}
+.mult-val{color:var(--accent);font-weight:700;font-size:1.05rem;min-width:54px}
+
+/* REPEAT */
+.repeat-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px}
+
+/* COST PREVIEW */
+.cost-bar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:11px 14px;background:var(--card2);border-radius:8px;margin-bottom:12px}
+.cost-bar .label{color:var(--muted);font-size:.82rem}
+.cost-bar .val{font-weight:700;font-size:1.1rem;color:var(--yellow)}
+
+/* HISTORY */
+.bet-item{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:13px;margin-bottom:9px}
+.bet-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;flex-wrap:wrap;gap:5px}
+.bet-id{font-family:monospace;font-size:.78rem;color:var(--muted)}
+.bet-status{font-size:.73rem;padding:3px 9px;border-radius:9px;font-weight:600}
+.status-pending{background:#6c63ff22;color:var(--accent)}
+.status-settled{background:#00e67622;color:var(--green)}
+.bet-ball{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;font-size:.68rem;font-weight:700;background:var(--card);border:1px solid var(--border);margin:1px}
+.bet-ball.hit{background:var(--accent);border-color:var(--accent);color:#fff}
+.win-amount{color:var(--green);font-weight:700}
+.no-win{color:var(--muted)}
+
+/* LEADERBOARD */
+.leader-card{display:flex;align-items:center;gap:12px;background:var(--card2);border:1px solid var(--border);border-radius:11px;padding:13px 16px;margin-bottom:9px}
+.rank{font-size:1.4rem;min-width:32px;text-align:center}
+.rank-1{color:var(--yellow)} .rank-2{color:#c0c0c0} .rank-3{color:#cd7f32}
+.leader-info{flex:1}
+.leader-name{font-size:1.05rem;font-weight:700}
+.leader-stats{font-size:.77rem;color:var(--muted);margin-top:2px}
+.leader-balance{text-align:right}
+.leader-balance .bal{font-size:1.2rem;font-weight:700;color:var(--green)}
+.leader-balance .pnl{font-size:.82rem;font-weight:600}
+
+/* ODDS TABLE */
+.odds-table{width:100%;border-collapse:collapse;font-size:.78rem}
+.odds-table th{background:var(--card2);padding:5px 8px;text-align:center;color:var(--muted);border:1px solid var(--border)}
+.odds-table td{padding:4px 8px;text-align:center;border:1px solid var(--border)}
+.odds-table tr:nth-child(odd) td{background:rgba(255,255,255,.02)}
+.odds-hl{color:var(--yellow);font-weight:700}
+
+/* MISC */
+.hint{font-size:.78rem;color:var(--muted);margin-bottom:4px}
+.empty{color:var(--muted);text-align:center;padding:36px;font-size:.88rem}
+.loading{color:var(--muted);font-size:.83rem;padding:8px 0}
+.stat-row{display:flex;justify-content:space-between;font-size:.83rem;padding:5px 0;border-bottom:1px solid var(--border)}
+.stat-row:last-child{border-bottom:none}
+#toast{position:fixed;bottom:22px;right:22px;background:#333;color:#fff;padding:12px 18px;border-radius:9px;font-size:.88rem;opacity:0;transition:.3s;pointer-events:none;max-width:280px;z-index:9999}
+#toast.show{opacity:1}
+#toast.toast-ok{background:#00695c}
+#toast.toast-err{background:#b71c1c}
+</style>
+</head>
+<body>
+
+<!-- ══════════ LOGIN ══════════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>🎯 虛擬投注</h1>
+    <p>Bingo Bingo 模擬平台</p>
+    <select id="login-uid" class="inp">
+      <option value="">── 選擇帳號 ──</option>
+    </select>
+    <input type="password" id="login-pw" class="inp" placeholder="密碼"
+           onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn btn-primary" onclick="doLogin()">登入</button>
+    <div class="error-msg err" id="login-err"></div>
+  </div>
+</div>
+
+<!-- ══════════ MAIN ══════════ -->
+<div id="main-screen">
+  <header>
+    <div class="header-left">
+      <h2>🎯 虛擬 Bingo</h2>
+      <span class="balance-chip">💰 NT$<span id="hd-balance">--</span></span>
+      <span class="pnl-chip" id="hd-pnl"></span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span style="color:var(--muted);font-size:.83rem" id="hd-name"></span>
+      <button class="btn btn-sm btn-gray" onclick="doLogout()">登出</button>
+    </div>
+  </header>
+
+  <!-- DRAW BAR -->
+  <div class="draw-bar">
+    <span style="color:var(--muted)">第 <strong id="draw-period">--</strong> 期</span>
+    <div class="draw-balls" id="draw-balls"></div>
+    <span class="countdown" id="countdown">⏱ --</span>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('bet')">🎲 下注</div>
+    <div class="tab" onclick="switchTab('history')">📋 我的投注</div>
+    <div class="tab" onclick="switchTab('board')">🏆 排行榜</div>
+    <div class="tab" onclick="switchTab('weekly')">👑 週冠軍</div>
+    <div class="tab" onclick="switchTab('odds')">📊 賠率表</div>
+    <div class="tab" onclick="switchTab('profile')">⚙️ 設定</div>
+  </div>
+
+  <!-- ─── TAB: 下注 ─── -->
+  <div class="tab-content active" id="tab-bet">
+
+    <!-- 玩法分類 -->
+    <div class="section">
+      <h3>玩法</h3>
+      <div class="type-label">基本玩法</div>
+      <div class="type-group" style="margin-bottom:10px">
+        <button class="type-btn active" onclick="setType('直玩')">自行選號</button>
+        <button class="type-btn" onclick="setType('複式')">複式</button>
+        <button class="type-btn" onclick="setType('膽拖')">膽拖</button>
+        <button class="type-btn" onclick="setType('快選')">快選</button>
+      </div>
+      <div class="type-label">特殊玩法</div>
+      <div class="type-group">
+        <button class="type-btn" onclick="setType('超級獎號')">⭐ 超級獎號</button>
+        <button class="type-btn" onclick="setType('猜大小')">🎯 猜大小</button>
+        <button class="type-btn" onclick="setType('猜單雙')">🎲 猜單雙</button>
+      </div>
+    </div>
+
+    <!-- 選幾星（基本玩法） -->
+    <div class="section" id="sec-star">
+      <h3>選幾星</h3>
+      <div class="pick-btns" id="pick-btns"></div>
+    </div>
+
+    <!-- 選號區（依玩法切換） -->
+    <div class="section" id="sec-num">
+      <h3 id="num-title">選號</h3>
+
+      <!-- 膽拖切換 -->
+      <div id="dantuo-row" style="display:none" class="dantuo-row">
+        <button class="dt-btn active-dan" id="dan-btn" onclick="setDanTuo('dan')">🔴 膽球</button>
+        <button class="dt-btn" id="tuo-btn" onclick="setDanTuo('tuo')">🟢 拖球</button>
+      </div>
+
+      <!-- 猜大小按鈕 -->
+      <div id="bigsmall-grid" class="choice-grid" style="display:none">
+        <div class="choice-card" id="card-大" onclick="toggleChoice('猜大小','大')">
+          <h4>🔼 大</h4>
+          <p>41~80 號 ≥ 13 顆</p>
+        </div>
+        <div class="choice-card" id="card-小" onclick="toggleChoice('猜大小','小')">
+          <h4>🔽 小</h4>
+          <p>01~40 號 ≥ 13 顆</p>
+        </div>
+      </div>
+
+      <!-- 猜單雙按鈕 -->
+      <div id="oddeven-grid" class="choice-grid" style="display:none">
+        <div class="choice-card" id="card-單" onclick="toggleChoice('猜單雙','單')">
+          <h4>🔢 單</h4>
+          <p>單數號碼 ≥ 13 顆</p>
+        </div>
+        <div class="choice-card" id="card-雙" onclick="toggleChoice('猜單雙','雙')">
+          <h4>🎱 雙</h4>
+          <p>雙數號碼 ≥ 13 顆</p>
+        </div>
+      </div>
+
+      <!-- 號碼格子（基本玩法 + 超級獎號） -->
+      <div id="num-grid-wrap">
+        <div class="hint" id="num-hint"></div>
+        <div class="chips-row" id="chips"></div>
+        <div class="num-grid" id="num-grid"></div>
+      </div>
+    </div>
+
+    <!-- 加倍投注 -->
+    <div class="section">
+      <h3>加倍投注</h3>
+      <div class="mult-row">
+        <label>倍數</label>
+        <input type="range" min="1" max="50" value="1" id="mult-slider"
+               oninput="setMult(+this.value)">
+        <span class="mult-val"><span id="mult-val">1</span> 倍</span>
+      </div>
+      <div class="hint" style="margin-top:6px">每注 NT$25 × <span id="mult-note">1</span> = NT$<span id="unit-price">25</span></div>
+    </div>
+
+    <!-- 連買期數 -->
+    <div class="section">
+      <h3>連買期數</h3>
+      <div class="repeat-row">
+        <label style="color:var(--muted);font-size:.88rem">連買</label>
+        <input type="range" min="1" max="50" value="1" id="repeat-slider"
+               oninput="setRepeat(+this.value)" style="flex:1;min-width:100px;accent-color:var(--accent)">
+        <span style="color:var(--accent);font-weight:700;min-width:50px"><span id="repeat-val">1</span> 期</span>
+      </div>
+    </div>
+
+    <!-- 費用預覽 + 下注 -->
+    <div class="cost-bar">
+      <div>
+        <div class="label">注數 × 倍數 × 期數</div>
+        <div style="font-size:.88rem;color:var(--text)" id="combo-info">--</div>
+      </div>
+      <div>
+        <div class="label">總投注金額</div>
+        <div class="val" id="total-cost">NT$ --</div>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="bet-btn" onclick="doBet()">確認下注</button>
+    <div class="error-msg err" id="bet-err" style="margin-top:8px"></div>
+
+  </div><!-- /tab-bet -->
+
+  <!-- ─── TAB: 投注記錄 ─── -->
+  <div class="tab-content" id="tab-history">
+    <div style="display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="btn btn-sm btn-gray" onclick="loadHistory('all')">全部</button>
+      <button class="btn btn-sm btn-gray" onclick="loadHistory('pending')">進行中</button>
+      <button class="btn btn-sm btn-gray" onclick="loadHistory('settled')">已結算</button>
+      <button class="btn btn-sm btn-gray" onclick="refreshStats()">↻ 刷新</button>
+    </div>
+    <div id="history-list"><div class="loading">載入中...</div></div>
+  </div>
+
+  <!-- ─── TAB: 排行榜 ─── -->
+  <div class="tab-content" id="tab-board">
+    <div id="board-list"><div class="loading">載入中...</div></div>
+  </div>
+
+  <!-- ─── TAB: 週冠軍 ─── -->
+  <div class="tab-content" id="tab-weekly">
+    <div class="section" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <h3 style="margin-bottom:0">每週第一名數據紀錄</h3>
+      <button class="btn btn-sm btn-gray" onclick="loadWeeklyChampions()">🔄 重新整理</button>
+    </div>
+    <div id="weekly-list"><div class="loading">載入中...</div></div>
+  </div>
+
+  <!-- ─── TAB: 賠率表 ─── -->
+  <div class="tab-content" id="tab-odds">
+    <div class="section">
+      <h3>基本玩法賠率（每注 NT$25 × 倍數）</h3>
+      <div style="overflow-x:auto;margin-top:8px">
+        <table class="odds-table" id="odds-basic"></table>
+      </div>
+    </div>
+    <div class="section">
+      <h3>超級獎號賠率（猜中第20顆球）</h3>
+      <div style="overflow-x:auto;margin-top:8px">
+        <table class="odds-table" id="odds-super"></table>
+      </div>
+    </div>
+    <div class="section">
+      <h3>猜大小 / 猜單雙（≥13顆符合即中）</h3>
+      <table class="odds-table" style="margin-top:8px">
+        <tr><th>玩法</th><th>中獎條件</th><th>倍率</th><th>獎金(×NT$25)</th></tr>
+        <tr><td>猜大</td><td>41~80號 開出 ≥13顆</td><td class="odds-hl">×6</td><td>NT$150</td></tr>
+        <tr><td>猜小</td><td>01~40號 開出 ≥13顆</td><td class="odds-hl">×6</td><td>NT$150</td></tr>
+        <tr><td>猜單</td><td>單數號碼 開出 ≥13顆</td><td class="odds-hl">×6</td><td>NT$150</td></tr>
+        <tr><td>猜雙</td><td>雙數號碼 開出 ≥13顆</td><td class="odds-hl">×6</td><td>NT$150</td></tr>
+      </table>
+      <p style="font-size:.77rem;color:var(--muted);margin-top:8px">可同時猜大+小（2注）或單+雙（2注），獎金分別計算</p>
+    </div>
+  </div>
+
+  <!-- ─── TAB: 設定 ─── -->
+  <div class="tab-content" id="tab-profile">
+    <div class="section">
+      <h3>變更暱稱</h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="new-name" class="inp" placeholder="輸入新暱稱（最多20字）" style="margin-bottom:0;flex:1">
+        <button class="btn btn-sm btn-gray" onclick="doChangeName()">確認</button>
+      </div>
+      <div class="error-msg" id="name-msg" style="margin-top:6px"></div>
+    </div>
+    <div class="section">
+      <h3>變更密碼</h3>
+      <p class="hint" style="margin-bottom:12px">建議登入後立即更改預設密碼</p>
+      <input type="password" id="old-pw" class="inp" placeholder="舊密碼">
+      <input type="password" id="new-pw" class="inp" placeholder="新密碼（至少4碼）">
+      <input type="password" id="new-pw2" class="inp" placeholder="確認新密碼">
+      <button class="btn btn-primary" onclick="doChangePw()">更新密碼</button>
+      <div class="error-msg" id="pw-msg" style="margin-top:8px"></div>
+    </div>
+    <div class="section">
+      <h3>我的統計</h3>
+      <div id="profile-stats" class="loading">載入中...</div>
+    </div>
+  </div>
+
+</div><!-- /main-screen -->
+
+<div id="toast"></div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════════
+let session = null;
+let betType  = '直玩';
+let pickCnt  = 5;
+let selBalls = [];      // 號碼 (int[]) 或 choice (str[])
+let selDan   = [];
+let selTuo   = [];
+let danTuoMode = 'dan';
+let multiplier  = 1;
+let repeatDraws = 1;
+let latestPeriod = '';
+
+// ════════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════════
+window.onload = async () => {
+  await loadUserList();
+  const saved = localStorage.getItem('vb_session');
+  if (saved) {
+    try { session = JSON.parse(saved); await refreshStats(); showMain(); } catch {}
+  }
+  buildNumGrid();
+  buildPickBtns();
+  updateUI();
+  renderOdds();
+  startDrawTimer();
+  fetchLatestDraw();
+  setInterval(fetchLatestDraw, 30000);
+};
+
+async function loadUserList() {
+  try {
+    const d = await fetch('/api/virtual/users').then(r=>r.json());
+    const sel = document.getElementById('login-uid');
+    sel.innerHTML = '<option value="">── 選擇帳號 ──</option>';
+    (d.users||[]).forEach(u => sel.innerHTML += `<option value="${u.id}">${u.name}</option>`);
+  } catch {}
+}
+
+// ════════════════════════════════════════════════════════════
+// AUTH
+// ════════════════════════════════════════════════════════════
+async function doLogin() {
+  const uid = document.getElementById('login-uid').value;
+  const pw  = document.getElementById('login-pw').value;
+  if (!uid||!pw) { document.getElementById('login-err').textContent='請選擇帳號並輸入密碼'; return; }
+  const d = await fetch('/api/virtual/login',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({user_id:uid,password:pw})
+  }).then(r=>r.json());
+  if (d.ok) {
+    session = {...d.user, user_id: d.user.id || uid};
+    localStorage.setItem('vb_session', JSON.stringify(session));
+    showMain();
+  } else {
+    document.getElementById('login-err').textContent = d.msg||'密碼錯誤';
+  }
+}
+
+function doLogout() {
+  session = null; localStorage.removeItem('vb_session');
+  document.getElementById('main-screen').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('login-pw').value = '';
+}
+
+function showMain() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('main-screen').style.display = 'block';
+  updateHeader(); loadHistory('pending'); loadBoard();
+}
+
+async function refreshStats() {
+  if (!session) return;
+  const uid = session.user_id || session.id;
+  try {
+    const d = await fetch(`/api/virtual/stats?user_id=${uid}`).then(r=>r.json());
+    if (d.ok) {
+      Object.assign(session, d.stats, {user_id: uid});
+      localStorage.setItem('vb_session', JSON.stringify(session));
+      updateHeader();
+    }
+  } catch {}
+}
+
+function updateHeader() {
+  if (!session) return;
+  document.getElementById('hd-name').textContent = session.name || session.user_id;
+  document.getElementById('hd-balance').textContent = (session.balance||0).toLocaleString();
+  const pnl = (session.balance||0) - 10000;
+  const chip = document.getElementById('hd-pnl');
+  chip.className = 'pnl-chip ' + (pnl>=0?'pnl-pos':'pnl-neg');
+  chip.textContent = (pnl>=0?'+':'') + pnl.toLocaleString();
+}
+
+// ════════════════════════════════════════════════════════════
+// TABS
+// ════════════════════════════════════════════════════════════
+function switchTab(name) {
+  const tabs = ['bet','history','board','weekly','odds','profile'];
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===name));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  if (name==='history') loadHistory('all');
+  if (name==='board')   loadBoard();
+  if (name==='weekly')  loadWeeklyChampions();
+  if (name==='profile') loadProfile();
+}
+
+// ════════════════════════════════════════════════════════════
+// BET PANEL
+// ════════════════════════════════════════════════════════════
+const BASIC_TYPES = new Set(['直玩','複式','膽拖','快選']);
+const SPECIAL_TYPES = new Set(['超級獎號','猜大小','猜單雙']);
+
+function setType(t) {
+  betType = t;
+  selBalls=[]; selDan=[]; selTuo=[];
+  document.querySelectorAll('.type-btn').forEach(b=>b.classList.toggle('active',b.textContent.trim().replace(/^⭐ |^🎯 |^🎲 /,'')===t||b.textContent.trim()===t));
+  updateUI();
+}
+
+function buildPickBtns() {
+  const el = document.getElementById('pick-btns'); el.innerHTML='';
+  for (let i=1;i<=10;i++){
+    const b=document.createElement('button');
+    b.className='pick-btn'+(i===pickCnt?' active':'');
+    b.textContent=i+'星';
+    b.onclick=()=>{pickCnt=i;selBalls=[];selDan=[];selTuo=[];buildPickBtns();renderGrid();renderChips();updateUI();};
+    el.appendChild(b);
+  }
+}
+
+function buildNumGrid() {
+  const el=document.getElementById('num-grid'); el.innerHTML='';
+  for (let n=1;n<=80;n++){
+    const b=document.createElement('button');
+    b.className='num-btn'; b.id=`n${n}`; b.textContent=n<10?'0'+n:n;
+    b.onclick=()=>toggleNum(n);
+    el.appendChild(b);
+  }
+}
+
+function updateUI() {
+  const isBasic   = BASIC_TYPES.has(betType);
+  const isSuper   = betType==='超級獎號';
+  const isBigSm   = betType==='猜大小';
+  const isOddEv   = betType==='猜單雙';
+
+  document.getElementById('sec-star').style.display   = (isBasic)?'':'none';
+  document.getElementById('dantuo-row').style.display  = (betType==='膽拖')?'flex':'none';
+  document.getElementById('bigsmall-grid').style.display = isBigSm?'':'none';
+  document.getElementById('oddeven-grid').style.display  = isOddEv?'':'none';
+  document.getElementById('num-grid-wrap').style.display = (isBasic||isSuper)?'':'none';
+
+  // titles / hints
+  if (isSuper) {
+    document.getElementById('num-title').textContent = '預測第20顆球（選1～20個）';
+    document.getElementById('num-hint').textContent  = `已選 ${selBalls.length} 個號碼`;
+  } else if (isBasic) {
+    document.getElementById('num-title').textContent = '選號';
+  }
+  if (betType==='快選') {
+    document.getElementById('num-hint').textContent = '快選：系統隨機選號，不需手動選';
+  }
+
+  renderGrid(); renderChips(); updateCost();
+}
+
+function toggleNum(n) {
+  if (betType==='快選') return;
+  if (betType==='超級獎號') {
+    const idx=selBalls.indexOf(n);
+    if (idx>=0) selBalls.splice(idx,1);
+    else if (selBalls.length<20) selBalls.push(n);
+    else { showToast('超級獎號最多選20個','err'); return; }
+  } else if (betType==='直玩') {
+    const idx=selBalls.indexOf(n);
+    if (idx>=0) selBalls.splice(idx,1);
+    else if (selBalls.length<pickCnt) selBalls.push(n);
+    else { showToast(`直玩只能選${pickCnt}星`,'err'); return; }
+  } else if (betType==='複式') {
+    const idx=selBalls.indexOf(n);
+    if (idx>=0) selBalls.splice(idx,1);
+    else selBalls.push(n);
+  } else if (betType==='膽拖') {
+    if (danTuoMode==='dan') {
+      if (selDan.includes(n)) selDan=selDan.filter(x=>x!==n);
+      else if (selTuo.includes(n)) { showToast('已在拖球中','err'); return; }
+      else if (selDan.length>=pickCnt-1) { showToast('膽球數不可≥選星數','err'); return; }
+      else selDan.push(n);
+    } else {
+      if (selTuo.includes(n)) selTuo=selTuo.filter(x=>x!==n);
+      else if (selDan.includes(n)) { showToast('已在膽球中','err'); return; }
+      else selTuo.push(n);
+    }
+  }
+  renderGrid(); renderChips(); updateUI();
+}
+
+function toggleChoice(type, val) {
+  const card = document.getElementById(`card-${val}`);
+  const idx  = selBalls.indexOf(val);
+  if (idx>=0) { selBalls.splice(idx,1); card.classList.remove('active'); }
+  else         { selBalls.push(val);     card.classList.add('active'); }
+  updateCost();
+}
+
+function setDanTuo(mode) {
+  danTuoMode=mode;
+  document.getElementById('dan-btn').className='dt-btn'+(mode==='dan'?' active-dan':'');
+  document.getElementById('tuo-btn').className='dt-btn'+(mode==='tuo'?' active-tuo':'');
+}
+
+function renderGrid() {
+  for(let n=1;n<=80;n++){
+    const b=document.getElementById(`n${n}`); if(!b) continue;
+    b.className='num-btn';
+    if(betType==='膽拖'){
+      if(selDan.includes(n)) b.className+=' sel-dan';
+      else if(selTuo.includes(n)) b.className+=' sel-tuo';
+    } else {
+      if(selBalls.includes(n)) b.className+=' sel-ball';
+    }
+  }
+}
+
+function renderChips() {
+  const el=document.getElementById('chips'); el.innerHTML='';
+  const mk=(n,cls,rm)=>{
+    const c=document.createElement('span');
+    c.className=`chip ${cls}`;
+    c.innerHTML=`${n<10?'0'+n:n} <span class="chip-rm" onclick="${rm}(${n})">✕</span>`;
+    el.appendChild(c);
+  };
+  if(betType==='膽拖'){
+    [...selDan].sort((a,b)=>a-b).forEach(n=>mk(n,'chip-dan','rmDan'));
+    [...selTuo].sort((a,b)=>a-b).forEach(n=>mk(n,'chip-tuo','rmTuo'));
+  } else if(BASIC_TYPES.has(betType)||betType==='超級獎號'){
+    [...selBalls].sort((a,b)=>a-b).forEach(n=>mk(n,'chip-ball','rmBall'));
+  }
+}
+window.rmBall=n=>{selBalls=selBalls.filter(x=>x!==n);renderGrid();renderChips();updateUI();};
+window.rmDan =n=>{selDan=selDan.filter(x=>x!==n);renderGrid();renderChips();updateUI();};
+window.rmTuo =n=>{selTuo=selTuo.filter(x=>x!==n);renderGrid();renderChips();updateUI();};
+
+function setMult(v) {
+  multiplier=v;
+  document.getElementById('mult-val').textContent=v;
+  document.getElementById('mult-note').textContent=v;
+  document.getElementById('unit-price').textContent=(25*v).toLocaleString();
+  updateCost();
+}
+function setRepeat(v) {
+  repeatDraws=v;
+  document.getElementById('repeat-val').textContent=v;
+  updateCost();
+}
+
+function calcCostJS() {
+  const comb=(n,r)=>{if(r<0||r>n)return 0;let c=1;for(let i=0;i<r;i++)c=c*(n-i)/(i+1);return Math.round(c);};
+  const unit=25*multiplier;
+  let combinations=0;
+
+  if(betType==='直玩'){
+    if(selBalls.length!==pickCnt) return {valid:false,msg:`請選 ${pickCnt} 個號碼`};
+    combinations=1;
+  } else if(betType==='複式'){
+    if(selBalls.length<=pickCnt) return {valid:false,msg:`複式需選超過 ${pickCnt} 個`};
+    combinations=comb(selBalls.length,pickCnt);
+  } else if(betType==='膽拖'){
+    if(!selDan.length||!selTuo.length) return {valid:false,msg:'請選膽球與拖球'};
+    const need=pickCnt-selDan.length;
+    if(need<1) return {valid:false,msg:'膽球數不可≥選星數'};
+    if(selTuo.length<need) return {valid:false,msg:`拖球至少需 ${need} 個`};
+    combinations=comb(selTuo.length,need);
+  } else if(betType==='快選'){
+    combinations=1;
+  } else if(betType==='超級獎號'){
+    if(!selBalls.length) return {valid:false,msg:'請選1~20個號碼'};
+    combinations=selBalls.length;
+  } else if(betType==='猜大小'||betType==='猜單雙'){
+    if(!selBalls.length) return {valid:false,msg:'請選擇至少一個選項'};
+    combinations=selBalls.length;
+  }
+
+  const unitCost=combinations*unit;
+  return {valid:true,combinations,unitCost,total:unitCost*repeatDraws,msg:''};
+}
+
+function updateCost() {
+  const info=calcCostJS();
+  document.getElementById('combo-info').textContent =
+    info.valid ? `${info.combinations}注 × ${multiplier}倍 × ${repeatDraws}期` : info.msg;
+  document.getElementById('total-cost').textContent =
+    info.valid ? `NT$ ${info.total.toLocaleString()}` : '--';
+  document.getElementById('num-hint').textContent =
+    betType==='快選' ? '快選：系統隨機選號'
+    : betType==='超級獎號' ? `已選 ${selBalls.length} 個號碼（猜第20顆）`
+    : betType==='直玩'||betType==='複式' ? `已選 ${selBalls.length} 個`
+    : betType==='膽拖' ? `膽球 ${selDan.length} | 拖球 ${selTuo.length}` : '';
+}
+
+// ════════════════════════════════════════════════════════════
+// PLACE BET
+// ════════════════════════════════════════════════════════════
+async function doBet() {
+  if (!session) return;
+  const info=calcCostJS();
+  if (!info.valid) { document.getElementById('bet-err').textContent=info.msg; return; }
+  const uid=session.user_id||session.id;
+
+  const body = {
+    user_id:uid, bet_type:betType, pick_count:pickCnt,
+    balls: (betType==='猜大小'||betType==='猜單雙') ? selBalls : betType==='膽拖'?[]:selBalls,
+    dan_balls: betType==='膽拖'?selDan:[],
+    tuo_balls: betType==='膽拖'?selTuo:[],
+    multiplier, repeat_draws:repeatDraws, current_period:latestPeriod,
+  };
+
+  document.getElementById('bet-btn').disabled=true;
+  document.getElementById('bet-err').textContent='';
+  const d=await fetch('/api/virtual/bet',{
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
+  }).then(r=>r.json()).catch(()=>({ok:false,msg:'網路錯誤'}));
+
+  if (d.ok) {
+    session.balance=d.balance;
+    localStorage.setItem('vb_session',JSON.stringify(session));
+    updateHeader();
+    selBalls=[];selDan=[];selTuo=[];
+    ['card-大','card-小','card-單','card-雙'].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.remove('active');});
+    renderGrid();renderChips();updateUI();
+    showToast(`✅ 下注成功 NT$${info.total.toLocaleString()}`,'ok');
+  } else {
+    document.getElementById('bet-err').textContent=d.msg;
+  }
+  document.getElementById('bet-btn').disabled=false;
+}
+
+// ════════════════════════════════════════════════════════════
+// HISTORY
+// ════════════════════════════════════════════════════════════
+async function loadHistory(sf) {
+  if (!session) return;
+  document.getElementById('history-list').innerHTML='<div class="loading">載入中...</div>';
+  const uid=session.user_id||session.id;
+  const d=await fetch(`/api/virtual/bets?user_id=${uid}&status=${sf}`).then(r=>r.json()).catch(()=>({bets:[]}));
+  const el=document.getElementById('history-list');
+  if (!d.bets||!d.bets.length){el.innerHTML='<div class="empty">暫無投注記錄</div>';return;}
+
+  el.innerHTML=d.bets.map(b=>{
+    const totalWin=b.results.reduce((s,r)=>s+(r.win_amount||0),0);
+    const stCls=b.status==='pending'?'status-pending':'status-settled';
+    const stTxt=b.status==='pending'?`進行中（剩${b.remaining_draws}期）`:'已結算';
+    let ballsHtml='';
+    if(b.bet_type==='猜大小'||b.bet_type==='猜單雙'){
+      ballsHtml=b.balls.map(c=>`<span style="background:var(--card2);border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:.82rem">${c}</span>`).join(' ');
+    } else if(b.bet_type==='膽拖'){
+      ballsHtml=`🔴${b.dan_balls.map(n=>('0'+n).slice(-2)).join(' ')} 🟢${b.tuo_balls.map(n=>('0'+n).slice(-2)).join(' ')}`;
+    } else {
+      ballsHtml=(b.balls||[]).map(n=>`<span class="bet-ball">${('0'+n).slice(-2)}</span>`).join('');
+    }
+    const last=b.results.length?b.results[b.results.length-1]:null;
+    let resultHtml='';
+    if(last){
+      const drawnSet=new Set(last.drawn||[]);
+      let hitsHtml='';
+      if(b.bet_type==='猜大小'||b.bet_type==='猜單雙'){
+        hitsHtml=(last.detail||[]).map(d=>`${d.choice}:${d.hit?'✅':'❌'}`).join(' ');
+      } else if(b.bet_type==='超級獎號'){
+        hitsHtml=`超級獎號:${last.super_ball||'?'} → ${last.hits?'✅命中':'❌未中'}`;
+      } else {
+        hitsHtml=(b.balls||[]).map(n=>`<span class="bet-ball${drawnSet.has(n)?' hit':''}">${('0'+n).slice(-2)}</span>`).join('');
+      }
+      resultHtml=`<div style="margin-top:6px;font-size:.8rem">
+        <span style="color:var(--muted)">期次#${last.period}</span>
+        <span style="margin:0 8px">${hitsHtml}</span>
+        ${last.win_amount>0?`<span class="win-amount">＋NT$${last.win_amount.toLocaleString()}</span>`:'<span class="no-win">未中獎</span>'}
+      </div>`;
+    }
+    const multNote=b.multiplier>1?` ×${b.multiplier}倍`:'';
+    return `<div class="bet-item">
+      <div class="bet-header">
+        <span class="bet-id">#${b.id} ${b.bet_type}${b.bet_type==='超級獎號'||b.bet_type==='猜大小'||b.bet_type==='猜單雙'?'':` ${b.pick_count}星`}${multNote} ×${b.repeat_draws}期</span>
+        <span class="bet-status ${stCls}">${stTxt}</span>
+      </div>
+      <div style="font-size:.83rem;margin-bottom:4px">${ballsHtml} <span style="color:var(--muted);margin-left:6px">${b.combinations}注 NT$${b.total_cost.toLocaleString()}</span></div>
+      ${resultHtml}
+      ${totalWin>0?`<div style="margin-top:5px;font-size:.82rem">累計：<span class="win-amount">NT$${totalWin.toLocaleString()}</span></div>`:''}
+    </div>`;
+  }).join('');
+}
+
+// ════════════════════════════════════════════════════════════
+// LEADERBOARD
+// ════════════════════════════════════════════════════════════
+async function loadBoard() {
+  const d=await fetch('/api/virtual/leaderboard').then(r=>r.json()).catch(()=>({board:[]}));
+  const ranks=['🥇','🥈','🥉','4️⃣'];
+  const rCls=['rank-1','rank-2','rank-3',''];
+  document.getElementById('board-list').innerHTML=d.board.map((u,i)=>{
+    const pnlCls=u.pnl>=0?'color:var(--green)':'color:var(--red)';
+    return `<div class="leader-card">
+      <div class="rank ${rCls[i]||''}">${ranks[i]||(i+1)}</div>
+      <div class="leader-info">
+        <div class="leader-name">${u.name}</div>
+        <div class="leader-stats">投注 NT$${u.total_bet.toLocaleString()} | 勝率 ${u.roi}%</div>
+      </div>
+      <div class="leader-balance">
+        <div class="bal">NT$${u.balance.toLocaleString()}</div>
+        <div class="pnl" style="${pnlCls}">${u.pnl>=0?'+':''}${u.pnl.toLocaleString()}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ════════════════════════════════════════════════════════════
+// WEEKLY CHAMPIONS
+// ════════════════════════════════════════════════════════════
+async function loadWeeklyChampions() {
+  const el = document.getElementById('weekly-list');
+  el.innerHTML = '<div class="loading">載入中...</div>';
+  const data = await fetch('/api/virtual/weekly_champions').then(r=>r.json()).catch(()=>[]);
+  if (!data.length) {
+    el.innerHTML = '<div class="section" style="text-align:center;color:var(--muted);padding:32px">尚無週冠軍記錄<br><small>每週一凌晨自動快照</small></div>';
+    return;
+  }
+  const ranks = ['🥇','🥈','🥉','4️⃣'];
+  const rCls  = ['rank-1','rank-2','rank-3',''];
+  el.innerHTML = data.map((rec,wi) => {
+    const c = rec.champion;
+    const pnlColor = c.pnl >= 0 ? 'var(--green)' : 'var(--red)';
+    const pnlStr   = (c.pnl >= 0 ? '+' : '') + c.pnl.toLocaleString();
+    const boardRows = (rec.leaderboard||[]).map((u,i) => {
+      const pc = u.pnl >= 0 ? 'var(--green)' : 'var(--red)';
+      return `<tr>
+        <td style="text-align:center">${ranks[i]||(i+1)}</td>
+        <td><strong>${u.name}</strong></td>
+        <td>NT$${u.balance.toLocaleString()}</td>
+        <td style="color:${pc}">${u.pnl>=0?'+':''}${u.pnl.toLocaleString()}</td>
+        <td>${u.win_rate||0}%</td>
+        <td style="color:var(--muted);font-size:.8rem">${u.total_bet.toLocaleString()}</td>
+      </tr>`;
+    }).join('');
+    return `
+    <div class="section" style="margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px;margin-bottom:12px">
+        <div>
+          <div style="font-size:1rem;font-weight:700;color:var(--yellow)">👑 ${rec.week}</div>
+          <div style="font-size:.78rem;color:var(--muted)">${rec.week_start} ～ ${rec.week_end}｜快照於 ${rec.recorded_at}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:1.2rem;font-weight:800;color:var(--yellow)">🥇 ${c.name}</div>
+          <div style="font-size:.85rem">NT$${c.balance.toLocaleString()} <span style="color:${pnlColor}">(${pnlStr})</span></div>
+          <div style="font-size:.78rem;color:var(--muted)">勝率 ${c.win_rate||0}% ｜ 投注 NT$${c.total_bet.toLocaleString()}</div>
+        </div>
+      </div>
+      <details>
+        <summary style="cursor:pointer;font-size:.82rem;color:var(--accent);margin-bottom:8px">▾ 查看完整週排行</summary>
+        <div style="overflow-x:auto;margin-top:6px">
+          <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+            <thead>
+              <tr style="color:var(--muted);border-bottom:1px solid var(--border)">
+                <th style="padding:5px 8px">名次</th><th style="padding:5px 8px;text-align:left">玩家</th>
+                <th style="padding:5px 8px">餘額</th><th style="padding:5px 8px">損益</th>
+                <th style="padding:5px 8px">勝率</th><th style="padding:5px 8px">總投注</th>
+              </tr>
+            </thead>
+            <tbody style="text-align:center">${boardRows}</tbody>
+          </table>
+        </div>
+      </details>
+    </div>`;
+  }).join('');
+}
+
+// ════════════════════════════════════════════════════════════
+// ODDS TABLE
+// ════════════════════════════════════════════════════════════
+function renderOdds() {
+  // 台彩官方賠率（每注 NT$25 × 投注倍數）
+  const ODDS = {
+    1:  {1: 2},
+    2:  {1: 1, 2: 3},
+    3:  {2: 2, 3: 20},
+    4:  {3: 4, 4: 40},
+    5:  {4: 20, 5: 300},
+    6:  {5: 40, 6: 1000},
+    7:  {7: 3200},
+    8:  {8: 20000},
+    9:  {8: 4000, 9: 40000},
+    10: {0: 1, 5: 1, 6: 10, 7: 100, 8: 1000, 9: 10000, 10: 200000},
+  };
+  // 每星最低中獎門檻（顯示用）
+  const MIN_HIT = {1:1,2:1,3:2,4:3,5:4,6:5,7:7,8:8,9:8,10:0};
+  // 顯示欄位：中0,中1...中10
+  const COLS = [0,1,2,3,4,5,6,7,8,9,10];
+  let html='<tr><th>選幾星</th>';
+  COLS.forEach(h=> html+= h===0?'<th>中0</th>':`<th>中${h}星</th>`);
+  html+='</tr>';
+  for(let p=1;p<=10;p++){
+    html+=`<tr><td><strong>${p}星</strong></td>`;
+    COLS.forEach(h=>{
+      const m=(ODDS[p]||{})[h];
+      if(m!==undefined){
+        const w=m*25;
+        const wStr=w>=1000000?(w/1000000)+'M':w>=1000?(w/1000)+'K':w;
+        html+=`<td class="odds-hl">×${m.toLocaleString()}<br><small>$${wStr}</small></td>`;
+      } else html+='<td style="color:#333">—</td>';
+    });
+    html+='</tr>';
+  }
+  document.getElementById('odds-basic').innerHTML=html;
+
+  // 超級獎號：固定 ×48 = NT$1,200
+  let shtml='<tr><th>說明</th><th>條件</th><th>倍率</th><th>獎金(×NT$25)</th></tr>';
+  shtml+=`<tr><td>超級獎號</td><td>猜中第20顆球</td><td class="odds-hl">×48</td><td>NT$1,200</td></tr>`;
+  shtml+=`<tr><td colspan="4" style="font-size:.77rem;color:var(--muted)">選1~20個號碼，每個號碼算一注（NT$25×倍數），猜中固定賠率×48</td></tr>`;
+  document.getElementById('odds-super').innerHTML=shtml;
+}
+
+// ════════════════════════════════════════════════════════════
+// PROFILE
+// ════════════════════════════════════════════════════════════
+async function doChangeName() {
+  const uid = session?.user_id || session?.id;
+  const name = document.getElementById('new-name').value.trim();
+  const msgEl = document.getElementById('name-msg');
+  if (!name) { msgEl.className='error-msg err'; msgEl.textContent='請輸入暱稱'; return; }
+  const d = await fetch('/api/virtual/change_name', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({user_id: uid, name})
+  }).then(r=>r.json()).catch(()=>({ok:false,msg:'網路錯誤'}));
+  if (d.ok) {
+    session.name = d.name;
+    localStorage.setItem('vb_session', JSON.stringify(session));
+    document.getElementById('hd-name').textContent = d.name;
+    document.getElementById('new-name').value = '';
+    msgEl.className = 'error-msg ok-msg';
+    msgEl.textContent = `✅ 暱稱已改為「${d.name}」`;
+    loadBoard();
+  } else {
+    msgEl.className = 'error-msg err';
+    msgEl.textContent = d.msg;
+  }
+}
+
+async function doChangePw() {
+  const uid=session?.user_id||session?.id;
+  const op=document.getElementById('old-pw').value;
+  const np=document.getElementById('new-pw').value;
+  const np2=document.getElementById('new-pw2').value;
+  const msgEl=document.getElementById('pw-msg');
+  if(!op||!np){msgEl.className='error-msg err';msgEl.textContent='請填寫舊密碼與新密碼';return;}
+  if(np!==np2){msgEl.className='error-msg err';msgEl.textContent='兩次密碼不一致';return;}
+  if(np.length<4){msgEl.className='error-msg err';msgEl.textContent='新密碼至少4碼';return;}
+  const d=await fetch('/api/virtual/change_password',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({user_id:uid,old_password:op,new_password:np})
+  }).then(r=>r.json()).catch(()=>({ok:false,msg:'網路錯誤'}));
+  msgEl.className='error-msg '+(d.ok?'ok-msg':'err');
+  msgEl.textContent=d.ok?'✅ 密碼已更新':d.msg;
+  if(d.ok){document.getElementById('old-pw').value='';document.getElementById('new-pw').value='';document.getElementById('new-pw2').value='';}
+}
+
+async function loadProfile() {
+  if (!session) return;
+  const uid=session.user_id||session.id;
+  const d=await fetch(`/api/virtual/stats?user_id=${uid}`).then(r=>r.json()).catch(()=>({ok:false}));
+  if(!d.ok) return;
+  const s=d.stats, pnl=s.pnl;
+  document.getElementById('profile-stats').innerHTML=`
+    <div class="stat-row"><span>帳號 ID</span><span>${uid}</span></div>
+    <div class="stat-row"><span>餘額</span><span style="color:var(--green)">NT$${s.balance.toLocaleString()}</span></div>
+    <div class="stat-row"><span>損益</span><span style="color:${pnl>=0?'var(--green)':'var(--red)'}">${pnl>=0?'+':''}NT$${pnl.toLocaleString()}</span></div>
+    <div class="stat-row"><span>總投注</span><span>NT$${s.total_bet.toLocaleString()}</span></div>
+    <div class="stat-row"><span>總中獎</span><span>NT$${s.total_win.toLocaleString()}</span></div>
+    <div class="stat-row"><span>進行中</span><span>${s.pending_bets}筆（NT$${(s.pending_cost||0).toLocaleString()}）</span></div>
+    <div class="stat-row"><span>中獎率</span><span>${s.win_rate}%（${s.win_periods}/${s.total_periods}期）</span></div>
+  `;
+}
+
+// ════════════════════════════════════════════════════════════
+// DRAW INFO
+// ════════════════════════════════════════════════════════════
+async function fetchLatestDraw() {
+  try {
+    const d=await fetch('/api/virtual/latest_draw').then(r=>r.json());
+    if(!d.ok) return;
+    document.getElementById('draw-period').textContent=d.period;
+    latestPeriod=d.period;
+    const balls=d.balls||[];
+    document.getElementById('draw-balls').innerHTML=balls.map((n,i)=>
+      `<span class="ball ${i===balls.length-1?'ball-super':'ball-drawn'}" title="${i===balls.length-1?'超級獎號':''}">${('0'+n).slice(-2)}</span>`
+    ).join('');
+    await refreshStats();
+  } catch {}
+}
+
+function startDrawTimer() {
+  const tick=()=>{
+    const now=new Date(),m=now.getMinutes(),s=now.getSeconds();
+    const next=Math.ceil((m+s/60+0.1)/5)*5;
+    const rem=Math.round((next-m)*60-s);
+    const mm=Math.floor(rem/60),ss=rem%60;
+    document.getElementById('countdown').textContent=`⏱ 下期 ${mm}:${ss<10?'0'+ss:ss}`;
+  };
+  tick(); setInterval(tick,1000);
+}
+
+// ════════════════════════════════════════════════════════════
+// TOAST
+// ════════════════════════════════════════════════════════════
+function showToast(msg,type='ok'){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.className=`show toast-${type}`;
+  clearTimeout(el._t); el._t=setTimeout(()=>el.className='',3000);
+}
+</script>
+</body>
+</html>
