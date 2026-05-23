@@ -157,9 +157,9 @@ header{background:var(--card);border-bottom:1px solid var(--border);padding:11px
 /* DANMAKU */
 #danmaku-layer{position:fixed;top:130px;left:0;right:0;bottom:140px;pointer-events:none;overflow:hidden;z-index:50;display:none}
 #danmaku-layer.active{display:block}
-.danmaku-item{position:absolute;right:-100%;white-space:nowrap;background:rgba(18,18,42,.72);border:1px solid rgba(108,99,255,.45);border-radius:20px;padding:4px 13px;font-size:.82rem;color:#e0e0f0;backdrop-filter:blur(4px);animation:dmScroll linear forwards;pointer-events:none}
+.danmaku-item{position:absolute;left:100vw;white-space:nowrap;background:rgba(18,18,42,.82);border:1px solid rgba(108,99,255,.5);border-radius:20px;padding:5px 14px;font-size:.84rem;color:#e0e0f0;backdrop-filter:blur(4px);animation:dmScroll linear forwards;pointer-events:none;will-change:transform}
 .danmaku-item .dm-name{color:var(--accent);font-weight:700;margin-right:5px}
-@keyframes dmScroll{from{transform:translateX(0)}to{transform:translateX(calc(-100vw - 100%))}}
+@keyframes dmScroll{from{transform:translateX(0)}to{transform:translateX(calc(-100vw - 600px))}}
 
 /* CHAT */
 #tab-chat{display:none;flex-direction:column;height:calc(100vh - 160px);padding:0}
@@ -511,6 +511,8 @@ function doLogout() {
 function showMain() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('main-screen').style.display = 'block';
+  // 預設在下注頁，彈幕層直接啟用
+  document.getElementById('danmaku-layer').classList.add('active');
   updateHeader(); loadHistory('pending'); loadBoard(); startChatPoller();
 }
 
