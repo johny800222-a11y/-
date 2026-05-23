@@ -836,21 +836,59 @@ async function loadHistory(sf) {
     }
     const multNote=b.multiplier>1?` ×${b.multiplier}倍`:'';
 
-    // 投注時間
+    // 投注時間（固定，不隨頁面重載漂移）
     const createdAt = b.created_at ? b.created_at.slice(0,16) : '--';
 
-    // 到期時間
+    // 到期資訊：以 from_period + repeat_draws 算出「到期期次」，固定不漂移
+    // 台彩每期間隔 5 分鐘，between 23:55~07:05 無開獎，跨夜需加補
+    function calcExpiryTime(createdAtStr, repeatDraws) {
+      // 從 created_at 往後加 repeatDraws 個開獎時段（每期 5 分鐘，跳過無開獎區段）
+      const DAILY_START = 7*60+5;   // 07:05
+      const DAILY_END   = 23*60+55; // 23:55
+      const DRAWS_PER_DAY = (DAILY_END - DAILY_START) / 5 + 1; // 193 期/天
+
+      let cur = new Date(createdAtStr.replace(' ','T')+'Z');
+      // 轉台灣時間（UTC+8）
+      cur = new Date(cur.getTime() + 8*3600000);
+      let h=cur.getUTCHours(), m=cur.getUTCMinutes();
+      let minOfDay=h*60+m;
+
+      let left=repeatDraws;
+      for(let safety=0;safety<500&&left>0;safety++){
+        if(minOfDay<DAILY_START){
+          minOfDay=DAILY_START;
+        } else if(minOfDay>DAILY_END){
+          // 跳到明天 07:05
+          minOfDay=DAILY_START;
+          cur=new Date(cur.getTime()+24*3600000);
+        }
+        const drawsToday=Math.floor((DAILY_END-minOfDay)/5)+1;
+        if(left<=drawsToday){
+          minOfDay+=(left-1)*5;
+          left=0;
+        } else {
+          left-=drawsToday;
+          minOfDay=DAILY_END+1; // 跳到隔天
+        }
+      }
+      const expH=Math.floor(minOfDay/60), expM=minOfDay%60;
+      const d=cur.getUTCDate(), mo=cur.getUTCMonth()+1;
+      return `${mo<10?'0'+mo:mo}/${d<10?'0'+d:d} ${expH<10?'0'+expH:expH}:${expM<10?'0'+expM:expM}`;
+    }
+
     let expiryHtml='';
     if(b.status==='pending'){
-      const minsLeft = b.remaining_draws * 5;
-      const expireDate = new Date(Date.now() + minsLeft*60000);
-      const expStr = expireDate.toLocaleString('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
-      expiryHtml=`<span style="color:var(--yellow)">⏳ 約 ${expStr} 結束</span>`;
+      // 起始期次 + 總期數 = 到期期次（固定）
+      const endPeriod = b.from_period ? (parseInt(b.from_period)+b.repeat_draws-1) : '?';
+      // 預估到期時刻（從 created_at 算，固定不漂移）
+      const expTime = b.created_at ? calcExpiryTime(b.created_at, b.repeat_draws) : '';
+      const settledSoFar = b.results ? b.results.length : 0;
+      expiryHtml=`<span style="color:var(--yellow)">⏳ 已跑 ${settledSoFar}/${b.repeat_draws} 期｜到期第 ${endPeriod} 期${expTime?' (約'+expTime+')':''}</span>`;
     } else {
-      const lastSettled = b.results.length ? b.results[b.results.length-1].settled_at : null;
-      expiryHtml=lastSettled
-        ? `<span style="color:var(--muted)">✅ ${lastSettled.slice(0,16)} 結算</span>`
-        : `<span style="color:var(--muted)">已結算</span>`;
+      const lastResult = b.results && b.results.length ? b.results[b.results.length-1] : null;
+      const settledPeriod = lastResult ? `第 ${lastResult.period} 期` : '';
+      const settledTime   = lastResult && lastResult.settled_at ? lastResult.settled_at.slice(0,16) : '';
+      expiryHtml=`<span style="color:var(--muted)">✅ 結算完畢 ${settledPeriod}${settledTime?' '+settledTime:''}</span>`;
     }
 
     return `<div class="bet-item">
@@ -862,9 +900,23 @@ async function loadHistory(sf) {
         <span>🕐 投注 ${createdAt}</span>
         ${expiryHtml}
       </div>
-      <div style="font-size:.83rem;margin-bottom:4px">${ballsHtml} <span style="color:var(--muted);margin-left:6px">${b.combinations}注 NT$${b.total_cost.toLocaleString()}</span></div>
+      <div style="font-size:.83rem;margin-bottom:6px">${ballsHtml} <span style="color:var(--muted);margin-left:6px">${b.combinations}注 NT$${b.total_cost.toLocaleString()}</span></div>
       ${resultHtml}
-      ${totalWin>0?`<div style="margin-top:5px;font-size:.82rem">累計：<span class="win-amount">NT$${totalWin.toLocaleString()}</span></div>`:''}
+      ${b.results&&b.results.length>1?`
+      <details style="margin-top:5px">
+        <summary style="font-size:.78rem;color:var(--accent);cursor:pointer">▾ 所有期結果（${b.results.length} 期）</summary>
+        <div style="margin-top:5px;display:flex;flex-direction:column;gap:3px">
+          ${b.results.map(r=>{
+            const rWin=r.win_amount>0;
+            return `<div style="font-size:.76rem;display:flex;gap:8px;align-items:center;padding:3px 0;border-bottom:1px solid var(--border)">
+              <span style="color:var(--muted);min-width:90px">第 ${r.period} 期</span>
+              <span style="color:var(--muted);font-size:.7rem">${r.settled_at?r.settled_at.slice(5,16):''}</span>
+              <span style="margin-left:auto;font-weight:600;color:${rWin?'var(--green)':'var(--muted)'}">${rWin?'＋NT$'+r.win_amount.toLocaleString():'未中'}</span>
+            </div>`;
+          }).join('')}
+        </div>
+      </details>`:''}
+      ${totalWin>0?`<div style="margin-top:6px;font-size:.83rem;font-weight:700">累計獎金：<span class="win-amount">NT$${totalWin.toLocaleString()}</span></div>`:''}
     </div>`;
   }).join('');
 }
