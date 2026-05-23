@@ -224,9 +224,15 @@ header{background:var(--card);border-bottom:1px solid var(--border);padding:11px
 
   <!-- DRAW BAR -->
   <div class="draw-bar">
-    <span style="color:var(--muted)">第 <strong id="draw-period">--</strong> 期</span>
+    <div style="display:flex;flex-direction:column;gap:1px;min-width:80px">
+      <span style="color:var(--muted);font-size:.78rem">第 <strong id="draw-period" style="color:var(--text)">--</strong> 期</span>
+      <span id="draw-datetime" style="font-size:.72rem;color:var(--muted)">--</span>
+    </div>
     <div class="draw-balls" id="draw-balls"></div>
-    <span class="countdown" id="countdown">⏱ --</span>
+    <div style="text-align:right;min-width:80px">
+      <div class="countdown" id="countdown">⏱ --</div>
+      <div id="draw-status" style="font-size:.7rem;color:var(--muted)"></div>
+    </div>
   </div>
 
   <!-- TABS -->
@@ -469,7 +475,7 @@ window.onload = async () => {
   renderOdds();
   startDrawTimer();
   fetchLatestDraw();
-  setInterval(fetchLatestDraw, 30000);
+  setInterval(fetchLatestDraw, 15000);  // 15 秒常規輪詢，開獎前後額外加密
 };
 
 async function loadUserList() {
@@ -1243,29 +1249,80 @@ async function loadProfile() {
 // ════════════════════════════════════════════════════════════
 // DRAW INFO
 // ════════════════════════════════════════════════════════════
+let _lastDrawPeriod = '';
+
 async function fetchLatestDraw() {
   try {
     const d=await fetch('/api/virtual/latest_draw').then(r=>r.json());
     if(!d.ok) return;
+
+    // 期次
     document.getElementById('draw-period').textContent=d.period;
     latestPeriod=d.period;
+
+    // 開獎日期時間
+    const dtEl=document.getElementById('draw-datetime');
+    if(d.draw_date && d.draw_time && d.draw_time!=='nan') {
+      dtEl.textContent=`🕐 ${d.draw_date} ${d.draw_time}`;
+    } else if(d.draw_date) {
+      dtEl.textContent=`🗓 ${d.draw_date}`;
+    } else {
+      dtEl.textContent='';
+    }
+
+    // 球號（n1=第1顆 … n20=超級獎號）
     const balls=d.balls||[];
     document.getElementById('draw-balls').innerHTML=balls.map((n,i)=>
       `<span class="ball ${i===balls.length-1?'ball-super':'ball-drawn'}" title="${i===balls.length-1?'超級獎號':''}">${('0'+n).slice(-2)}</span>`
     ).join('');
-    await refreshStats();
+
+    // 新一期開獎 → 刷新餘額
+    if(d.period !== _lastDrawPeriod) {
+      _lastDrawPeriod = d.period;
+      if(_lastDrawPeriod) { await refreshStats(); }
+    }
   } catch {}
 }
 
 function startDrawTimer() {
+  // 台彩賓果：07:05 ~ 23:55 每 5 分鐘一期
+  // 判斷是否在開獎時段（07:05–23:55），倒數到下一個整 5 分鐘
   const tick=()=>{
-    const now=new Date(),m=now.getMinutes(),s=now.getSeconds();
-    const next=Math.ceil((m+s/60+0.1)/5)*5;
-    const rem=Math.round((next-m)*60-s);
-    const mm=Math.floor(rem/60),ss=rem%60;
-    document.getElementById('countdown').textContent=`⏱ 下期 ${mm}:${ss<10?'0'+ss:ss}`;
+    const now=new Date();
+    const h=now.getHours(), m=now.getMinutes(), s=now.getSeconds();
+    const statusEl=document.getElementById('draw-status');
+    const cntEl=document.getElementById('countdown');
+
+    const totalMin=h*60+m;
+    // 開獎時段：07:05~23:55（即 425~1435 分）
+    if(totalMin<425){
+      const diffMin=425-totalMin, diffSec=diffMin*60-s;
+      const mm=Math.floor(diffSec/60), ss=diffSec%60;
+      cntEl.textContent=`⏸ 開始 ${mm}:${ss<10?'0'+ss:ss}`;
+      statusEl.textContent='今日開獎 07:05 起';
+    } else if(totalMin>=1435){
+      cntEl.textContent='🌙 今日開獎結束';
+      statusEl.textContent='明日 07:05 重新開始';
+    } else {
+      // 下一個整 5 分鐘（相對07:05起算的整 5 分）
+      const base=totalMin-425;                    // 距開播分鐘數
+      const nextSlot=Math.ceil((base+s/60)/5)*5; // 下一個 slot
+      const rem=Math.round(nextSlot*60-(base*60+s));
+      const mm=Math.floor(rem/60), ss=rem%60;
+      cntEl.textContent=`⏱ 下期 ${mm}:${ss<10?'0'+ss:ss}`;
+      statusEl.textContent='';
+    }
   };
-  tick(); setInterval(tick,1000);
+  tick();
+  setInterval(tick,1000);
+  // 每 15 秒向後端拉最新開獎（倒數歸零前後加密集輪詢）
+  setInterval(()=>{
+    const now=new Date();
+    const s=now.getSeconds(), m=now.getMinutes();
+    // 整 5 分鐘前後 30 秒內每 5 秒拉一次，其他時間 15 秒一次
+    const nearDraw=(m%5===4&&s>=30)||(m%5===0&&s<=30);
+    if(nearDraw) fetchLatestDraw();
+  },5000);
 }
 
 // ════════════════════════════════════════════════════════════

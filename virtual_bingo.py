@@ -534,8 +534,9 @@ def auto_settle_from_df(df) -> dict:  # noqa
     latest = df.iloc[-1]
     period = str(int(float(latest["period"])))
 
-    # 取出已開球（ball1~ball20，按欄位名稱排序以確保順序正確，第20顆為超級獎號）
-    ball_cols = sorted([c for c in df.columns if c.startswith("ball")])
+    # 取出已開球（n1~n20，按數字排序，第20顆為超級獎號）
+    ball_cols = sorted([c for c in df.columns if c.startswith("n") and c[1:].isdigit()],
+                       key=lambda x: int(x[1:]))
     drawn = [int(latest[c]) for c in ball_cols if c in latest.index and latest[c] > 0]
     if not drawn:
         return {"ok": False, "msg": "無法取得開獎號碼"}

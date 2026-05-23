@@ -500,9 +500,19 @@ def api_virtual_latest_draw():
             return jsonify({"ok": False})
         latest = df.iloc[-1]
         period = str(int(float(latest["period"])))
-        ball_cols = [c for c in df.columns if c.startswith("ball")]
-        balls = [int(latest[c]) for c in ball_cols if c in latest.index and latest[c] > 0]
-        return jsonify({"ok": True, "period": period, "balls": balls[:20]})
+        # 欄位名稱為 n1~n20
+        ball_cols = sorted([c for c in df.columns if c.startswith("n") and c[1:].isdigit()],
+                           key=lambda x: int(x[1:]))
+        balls = [int(latest[c]) for c in ball_cols if latest[c] > 0]
+        draw_date = str(latest.get("date", "")) if "date" in latest.index else ""
+        draw_time = str(latest.get("time", "")) if "time" in latest.index else ""
+        # NaN 轉空字串
+        if draw_date in ("nan", "NaT"): draw_date = ""
+        if draw_time in ("nan", "NaT"): draw_time = ""
+        return jsonify({
+            "ok": True, "period": period, "balls": balls[:20],
+            "draw_date": draw_date, "draw_time": draw_time
+        })
     except Exception as e:
         return jsonify({"ok": False, "msg": str(e)})
 
