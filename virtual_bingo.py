@@ -288,15 +288,21 @@ def place_bet(user_id: str, bet_type: str, pick_count: int,
     repeat_draws : 連買幾期（1~50）
     current_period: 從哪期開始
     """
-    balls     = sorted(set(int(x) for x in (balls or [])))
-    dan_balls = sorted(set(int(x) for x in (dan_balls or [])))
-    tuo_balls = sorted(set(int(x) for x in (tuo_balls or [])))
+    # 猜大小/猜單雙 的 balls 是字串清單（["大","小"] / ["單","雙"]），不做 int 轉換
+    if bet_type in ("猜大小", "猜單雙"):
+        balls     = list(dict.fromkeys(str(x) for x in (balls or [])))   # 去重保序
+        dan_balls = []
+        tuo_balls = []
+    else:
+        balls     = sorted(set(int(x) for x in (balls or [])))
+        dan_balls = sorted(set(int(x) for x in (dan_balls or [])))
+        tuo_balls = sorted(set(int(x) for x in (tuo_balls or [])))
 
     # 快選：隨機產生
     if bet_type == "快選":
         balls = sorted(random.sample(range(1, 81), pick_count))
 
-    # 號碼範圍驗證（猜大小/猜單雙 的 balls 是字串清單，跳過）
+    # 號碼範圍驗證（數字類型才驗）
     if bet_type not in ("猜大小", "猜單雙"):
         all_nums = balls + dan_balls + tuo_balls
         if any(n < 1 or n > 80 for n in all_nums):
