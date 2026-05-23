@@ -550,6 +550,19 @@ def api_virtual_settle():
         return jsonify({"ok": False, "msg": str(e)})
 
 
+@app.route("/api/virtual/reset_bet", methods=["POST"])
+def api_virtual_reset_bet():
+    """清除錯誤結算並重新補算"""
+    try:
+        data   = request.get_json() or {}
+        bet_id = data.get("bet_id", "")
+        df     = bingo_core.load_data()
+        result = virtual_bingo.reset_and_rerun_bet(bet_id, df)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
 @app.route("/api/virtual/backfill_settle", methods=["POST"])
 def api_virtual_backfill_settle():
     """

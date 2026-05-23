@@ -497,6 +497,10 @@ def settle_period(period: str, drawn_balls: list, super_ball: int = None) -> dic
         if bet["remaining_draws"] <= 0:
             bet["status"] = "expired"
             continue
+        # 只結算 >= from_period 的期次（避免把注下之前的開獎算進去）
+        fp = bet.get("from_period", "")
+        if fp and str(period) < str(fp):
+            continue
         # 避免同期重複結算
         already_periods = [r["period"] for r in bet["results"]]
         if period in already_periods:
@@ -544,6 +548,39 @@ def auto_settle_from_df(df) -> dict:  # noqa
     super_ball = drawn[-1] if len(drawn) >= 20 else None  # 第20顆 = 超級獎號
     result = settle_period(period, drawn, super_ball=super_ball)
     return {"ok": True, **result}
+
+
+def reset_and_rerun_bet(bet_id: str, df) -> dict:
+    """
+    清除某注的所有錯誤結算結果，退還已扣費用，重新對正確期次補算。
+    用於修正 from_period 判斷 bug 造成的錯誤結算。
+    """
+    bets_data  = _load_bets()
+    users_data = _load_users()
+    user_map   = {u["id"]: u for u in users_data["users"]}
+
+    bet = next((b for b in bets_data["bets"] if b["id"] == bet_id), None)
+    if not bet:
+        return {"ok": False, "msg": f"找不到投注 {bet_id}"}
+
+    # 退還因錯誤結算而發出的獎金
+    wrong_win = sum(r.get("win_amount", 0) for r in bet["results"])
+    u = user_map.get(bet["user_id"])
+    if u and wrong_win > 0:
+        u["balance"]   -= wrong_win
+        u["total_win"] -= wrong_win
+
+    # 重置注單狀態
+    bet["results"]         = []
+    bet["remaining_draws"] = bet["repeat_draws"]
+    bet["status"]          = "pending"
+
+    _save_bets(bets_data)
+    _save_users(users_data)
+
+    # 補算正確期次
+    result = backfill_settle(df)
+    return {"ok": True, "reset": bet_id, "wrong_win_refunded": wrong_win, "rerun": result}
 
 
 def backfill_settle(df, date_str: str = None, time_from: str = None, time_to: str = None) -> dict:
