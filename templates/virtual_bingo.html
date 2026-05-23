@@ -829,10 +829,32 @@ async function loadHistory(sf) {
       </div>`;
     }
     const multNote=b.multiplier>1?` ×${b.multiplier}倍`:'';
+
+    // 投注時間
+    const createdAt = b.created_at ? b.created_at.slice(0,16) : '--';
+
+    // 到期時間
+    let expiryHtml='';
+    if(b.status==='pending'){
+      const minsLeft = b.remaining_draws * 5;
+      const expireDate = new Date(Date.now() + minsLeft*60000);
+      const expStr = expireDate.toLocaleString('zh-TW',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+      expiryHtml=`<span style="color:var(--yellow)">⏳ 約 ${expStr} 結束</span>`;
+    } else {
+      const lastSettled = b.results.length ? b.results[b.results.length-1].settled_at : null;
+      expiryHtml=lastSettled
+        ? `<span style="color:var(--muted)">✅ ${lastSettled.slice(0,16)} 結算</span>`
+        : `<span style="color:var(--muted)">已結算</span>`;
+    }
+
     return `<div class="bet-item">
       <div class="bet-header">
         <span class="bet-id">#${b.id} ${b.bet_type}${b.bet_type==='超級獎號'||b.bet_type==='猜大小'||b.bet_type==='猜單雙'?'':` ${b.pick_count}星`}${multNote} ×${b.repeat_draws}期</span>
         <span class="bet-status ${stCls}">${stTxt}</span>
+      </div>
+      <div style="font-size:.75rem;color:var(--muted);display:flex;gap:14px;margin-bottom:5px;flex-wrap:wrap">
+        <span>🕐 投注 ${createdAt}</span>
+        ${expiryHtml}
       </div>
       <div style="font-size:.83rem;margin-bottom:4px">${ballsHtml} <span style="color:var(--muted);margin-left:6px">${b.combinations}注 NT$${b.total_cost.toLocaleString()}</span></div>
       ${resultHtml}
