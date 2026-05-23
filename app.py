@@ -540,10 +540,30 @@ def api_virtual_reset_balance():
 
 @app.route("/api/virtual/settle", methods=["POST"])
 def api_virtual_settle():
-    """手動觸發結算（測試用）"""
+    """手動觸發結算（最新一期）"""
     try:
         df = bingo_core.load_data()
         result = virtual_bingo.auto_settle_from_df(df)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
+@app.route("/api/virtual/backfill_settle", methods=["POST"])
+def api_virtual_backfill_settle():
+    """
+    補跑歷史期次結算
+    body: { "date": "2026/5/23", "time_from": "14:00", "time_to": "15:00" }
+    """
+    try:
+        data      = request.get_json() or {}
+        df        = bingo_core.load_data()
+        result    = virtual_bingo.backfill_settle(
+            df,
+            date_str  = data.get("date"),
+            time_from = data.get("time_from"),
+            time_to   = data.get("time_to"),
+        )
         return jsonify(result)
     except Exception as e:
         return jsonify({"ok": False, "msg": str(e)})

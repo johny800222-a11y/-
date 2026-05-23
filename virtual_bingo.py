@@ -546,6 +546,56 @@ def auto_settle_from_df(df) -> dict:  # noqa
     return {"ok": True, **result}
 
 
+def backfill_settle(df, date_str: str = None, time_from: str = None, time_to: str = None) -> dict:
+    """
+    補跑歷史期次結算（修復過去未結算的投注）
+    date_str  : "2026/5/23"（預設今天）
+    time_from : "14:00"（含，預設不限）
+    time_to   : "15:00"（含，預設不限）
+    回傳每期結算摘要
+    """
+    if df is None or df.empty:
+        return {"ok": False, "msg": "無開獎資料"}
+
+    ball_cols = sorted([c for c in df.columns if c.startswith("n") and c[1:].isdigit()],
+                       key=lambda x: int(x[1:]))
+
+    # 篩選日期
+    sub = df.copy()
+    if date_str:
+        sub = sub[sub["date"] == date_str]
+    # 篩選時間區間（time 欄位可能是 HH:MM 字串或 NaN）
+    if (time_from or time_to) and "time" in sub.columns:
+        def in_range(t):
+            if not isinstance(t, str) or not t or t == "nan":
+                return True   # 無時間資料就不過濾
+            return (not time_from or t >= time_from) and (not time_to or t <= time_to)
+        sub = sub[sub["time"].apply(in_range)]
+
+    # 依開獎順序排列
+    sub = sub.sort_values("period").reset_index(drop=True)
+
+    results = []
+    for _, row in sub.iterrows():
+        period = str(int(float(row["period"])))
+        drawn  = [int(row[c]) for c in ball_cols if c in row.index and row[c] > 0]
+        if not drawn:
+            continue
+        super_ball = drawn[-1] if len(drawn) >= 20 else None
+        r = settle_period(period, drawn, super_ball=super_ball)
+        results.append(r)
+
+    total_settled = sum(r["settled"] for r in results)
+    total_paid    = sum(r["total_paid"] for r in results)
+    return {
+        "ok":           True,
+        "periods_run":  len(results),
+        "total_settled": total_settled,
+        "total_paid":   total_paid,
+        "detail":       results,
+    }
+
+
 # ── 查詢 ──────────────────────────────────────────────────────────────────────
 
 def get_user_bets(user_id: str, limit: int = 50, status: str = None) -> list:
