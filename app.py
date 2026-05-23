@@ -498,7 +498,8 @@ def api_virtual_latest_draw():
         df = bingo_core.load_data()
         if df is None or df.empty:
             return jsonify({"ok": False})
-        latest = df.iloc[-1]
+        # 以 period 數值最大者為最新（避免 time=NaN 的排序問題）
+        latest = df.loc[df["period"].astype(float).idxmax()]
         period = str(int(float(latest["period"])))
         # 欄位名稱為 n1~n20
         ball_cols = sorted([c for c in df.columns if c.startswith("n") and c[1:].isdigit()],

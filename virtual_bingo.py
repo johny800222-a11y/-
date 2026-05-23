@@ -530,8 +530,8 @@ def auto_settle_from_df(df) -> dict:  # noqa
     if df is None or df.empty:
         return {"ok": False, "msg": "無開獎資料"}
 
-    # 取最新一期
-    latest = df.iloc[-1]
+    # 以 period 最大值取最新一期（避免 time=NaN 造成排序錯誤）
+    latest = df.loc[df["period"].astype(float).idxmax()]
     period = str(int(float(latest["period"])))
 
     # 取出已開球（n1~n20，按數字排序，第20顆為超級獎號）
@@ -572,8 +572,8 @@ def backfill_settle(df, date_str: str = None, time_from: str = None, time_to: st
             return (not time_from or t >= time_from) and (not time_to or t <= time_to)
         sub = sub[sub["time"].apply(in_range)]
 
-    # 依開獎順序排列
-    sub = sub.sort_values("period").reset_index(drop=True)
+    # 依開獎順序排列，去除重複 period
+    sub = sub.drop_duplicates("period").sort_values("period").reset_index(drop=True)
 
     results = []
     for _, row in sub.iterrows():
