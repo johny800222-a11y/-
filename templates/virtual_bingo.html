@@ -842,37 +842,39 @@ async function loadHistory(sf) {
     // 到期資訊：以 from_period + repeat_draws 算出「到期期次」，固定不漂移
     // 台彩每期間隔 5 分鐘，between 23:55~07:05 無開獎，跨夜需加補
     function calcExpiryTime(createdAtStr, repeatDraws) {
-      // 從 created_at 往後加 repeatDraws 個開獎時段（每期 5 分鐘，跳過無開獎區段）
+      // created_at 已是台灣時間，直接解析字串，不做任何時區轉換
       const DAILY_START = 7*60+5;   // 07:05
       const DAILY_END   = 23*60+55; // 23:55
-      const DRAWS_PER_DAY = (DAILY_END - DAILY_START) / 5 + 1; // 193 期/天
 
-      let cur = new Date(createdAtStr.replace(' ','T')+'Z');
-      // 轉台灣時間（UTC+8）
-      cur = new Date(cur.getTime() + 8*3600000);
-      let h=cur.getUTCHours(), m=cur.getUTCMinutes();
-      let minOfDay=h*60+m;
+      const [datePart, timePart] = createdAtStr.split(' ');
+      const [cyear, cmonth, cday] = datePart.split('-').map(Number);
+      const [ch, cmi] = timePart.split(':').map(Number);
 
-      let left=repeatDraws;
-      for(let safety=0;safety<500&&left>0;safety++){
-        if(minOfDay<DAILY_START){
-          minOfDay=DAILY_START;
-        } else if(minOfDay>DAILY_END){
+      let minOfDay = ch*60 + cmi;
+      let dayOffset = 0;
+
+      let left = repeatDraws;
+      for(let safety=0; safety<500 && left>0; safety++){
+        if(minOfDay < DAILY_START){
+          minOfDay = DAILY_START;
+        } else if(minOfDay > DAILY_END){
           // 跳到明天 07:05
-          minOfDay=DAILY_START;
-          cur=new Date(cur.getTime()+24*3600000);
+          minOfDay = DAILY_START;
+          dayOffset++;
         }
-        const drawsToday=Math.floor((DAILY_END-minOfDay)/5)+1;
-        if(left<=drawsToday){
-          minOfDay+=(left-1)*5;
-          left=0;
+        const drawsToday = Math.floor((DAILY_END - minOfDay) / 5) + 1;
+        if(left <= drawsToday){
+          minOfDay += (left-1)*5;
+          left = 0;
         } else {
-          left-=drawsToday;
-          minOfDay=DAILY_END+1; // 跳到隔天
+          left -= drawsToday;
+          minOfDay = DAILY_END + 1; // 跳到隔天
         }
       }
-      const expH=Math.floor(minOfDay/60), expM=minOfDay%60;
-      const d=cur.getUTCDate(), mo=cur.getUTCMonth()+1;
+      // 計算最終日期
+      const expDate = new Date(cyear, cmonth-1, cday + dayOffset);
+      const mo = expDate.getMonth()+1, d = expDate.getDate();
+      const expH = Math.floor(minOfDay/60), expM = minOfDay%60;
       return `${mo<10?'0'+mo:mo}/${d<10?'0'+d:d} ${expH<10?'0'+expH:expH}:${expM<10?'0'+expM:expM}`;
     }
 
