@@ -154,6 +154,13 @@ header{background:var(--card);border-bottom:1px solid var(--border);padding:11px
 #toast.toast-ok{background:#00695c}
 #toast.toast-err{background:#b71c1c}
 
+/* DANMAKU */
+#danmaku-layer{position:fixed;top:130px;left:0;right:0;bottom:140px;pointer-events:none;overflow:hidden;z-index:50;display:none}
+#danmaku-layer.active{display:block}
+.danmaku-item{position:absolute;right:-100%;white-space:nowrap;background:rgba(18,18,42,.72);border:1px solid rgba(108,99,255,.45);border-radius:20px;padding:4px 13px;font-size:.82rem;color:#e0e0f0;backdrop-filter:blur(4px);animation:dmScroll linear forwards;pointer-events:none}
+.danmaku-item .dm-name{color:var(--accent);font-weight:700;margin-right:5px}
+@keyframes dmScroll{from{transform:translateX(0)}to{transform:translateX(calc(-100vw - 100%))}}
+
 /* CHAT */
 #tab-chat{display:none;flex-direction:column;height:calc(100vh - 160px);padding:0}
 #tab-chat.active{display:flex}
@@ -197,6 +204,9 @@ header{background:var(--card);border-bottom:1px solid var(--border);padding:11px
     <div class="error-msg err" id="login-err"></div>
   </div>
 </div>
+
+<!-- DANMAKU LAYER（固定覆蓋在投注頁，pointer-events:none 不擋點擊） -->
+<div id="danmaku-layer"></div>
 
 <!-- ══════════ MAIN ══════════ -->
 <div id="main-screen">
@@ -535,6 +545,8 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===name));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
+  // 彈幕層：只在下注頁顯示
+  document.getElementById('danmaku-layer').classList.toggle('active', name==='bet');
   if (name==='history') loadHistory('all');
   if (name==='board')   loadBoard();
   if (name==='weekly')  loadWeeklyChampions();
@@ -918,6 +930,40 @@ let chatLastId  = null;   // 最後一則訊息 id，用於增量拉取
 let chatTimer   = null;
 let chatHide    = true;   // 是否在背景（頁籤未開）
 
+// ── 彈幕 ──
+const DM_TRACKS  = 6;    // 最多幾條跑道
+const DM_SPEEDS  = [11, 13, 15, 17];  // 秒
+const dmOccupied = new Array(DM_TRACKS).fill(0);  // 每條跑道到期時間
+
+function showDanmaku(name, text) {
+  const layer = document.getElementById('danmaku-layer');
+  if (!layer.classList.contains('active')) return;   // 不在投注頁就不顯示
+
+  // 選一條空閒跑道
+  const now = Date.now();
+  let track = dmOccupied.findIndex(t => t < now);
+  if (track === -1) track = dmOccupied.indexOf(Math.min(...dmOccupied));  // 取最快空的
+
+  const layerH = layer.clientHeight || 300;
+  const trackH = Math.floor(layerH / DM_TRACKS);
+  const topPx  = track * trackH + Math.floor(Math.random() * (trackH - 28));
+
+  const speed  = DM_SPEEDS[Math.floor(Math.random() * DM_SPEEDS.length)];
+
+  const el = document.createElement('div');
+  el.className = 'danmaku-item';
+  el.style.top = topPx + 'px';
+  el.style.animationDuration = speed + 's';
+  el.innerHTML = `<span class="dm-name">${escHtml(name)}</span>${escHtml(text)}`;
+  layer.appendChild(el);
+
+  // 預估佔用時間（讓下一條訊息不太疊在起點）
+  dmOccupied[track] = now + speed * 300;  // 約前 30% 跑完後才放新的
+
+  // 動畫結束後移除
+  el.addEventListener('animationend', () => el.remove());
+}
+
 function chatTimeAgo(dt) {
   const diff = Math.floor((Date.now() - new Date(dt).getTime()) / 1000);
   if (diff < 60)   return `${diff}秒前`;
@@ -980,7 +1026,9 @@ async function sendChat() {
   }).then(r=>r.json()).catch(()=>({ok:false,msg:'網路錯誤'}));
   btn.disabled = false;
   if (d.ok) {
+    const myName = session?.name || '我';
     inp.value = '';
+    showDanmaku(myName, text);       // 自己的訊息立即彈出
     await loadChat(true);
   } else {
     showToast(d.msg || '發送失敗', true);
@@ -1037,7 +1085,21 @@ function startChatPoller() {
     if (!msgs.length) return;
     const newLast = msgs[msgs.length-1].id;
     if (newLast === chatLastId) return;   // 沒有新訊息
+
+    // 找出所有新訊息（chatLastId 之後的）
+    const ids     = msgs.map(m=>m.id);
+    const fromIdx = chatLastId ? ids.indexOf(chatLastId) + 1 : msgs.length - 1;
+    const newMsgs = msgs.slice(Math.max(0, fromIdx));
+
     chatLastId = newLast;
+
+    // 🎯 新訊息 → 彈幕（最多同時射出 3 條，避免爆炸）
+    newMsgs.slice(-3).forEach((m, i) => {
+      if (m.type === 'system') return;
+      setTimeout(() => showDanmaku(m.name, m.text), i * 600);
+    });
+
+    // 聊天室頁籤紅點 + 更新訊息列表
     if (chatHide) {
       document.getElementById('chat-badge').style.display = 'inline';
     } else {
