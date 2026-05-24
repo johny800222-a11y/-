@@ -61,7 +61,7 @@
   .pick-score-chip .ps-val { font-size: .9rem; font-weight: 700; }
   .ps-heat .ps-val { color: var(--gold); }
   .ps-pair .ps-val { color: var(--blue); }
-  .ps-cov  .ps-val { color: var(--green); }
+  .ps-cov  .ps-val { color: var(--green); transition: color 0.3s; }
 
   /* 猜大小/單雙 */
   .guess-row { display: flex; gap: 10px; }
@@ -194,8 +194,9 @@
           <div class="pick-score-row">
             <div class="pick-score-chip ps-heat"><div class="ps-lbl">熱度分</div><div class="ps-val" id="six-heat">—</div></div>
             <div class="pick-score-chip ps-pair"><div class="ps-lbl">關聯分</div><div class="ps-val" id="six-pair">—</div></div>
-            <div class="pick-score-chip ps-cov"><div class="ps-lbl">區域覆蓋</div><div class="ps-val" id="six-cov">均衡</div></div>
+            <div class="pick-score-chip ps-cov"><div class="ps-lbl">命中機率</div><div class="ps-val" id="six-prob">—</div></div>
           </div>
+          <div id="six-advice" style="text-align:center;margin-top:6px;font-size:0.82rem;font-weight:600;letter-spacing:0.04em"></div>
         </div>
         <!-- slide 2: 9星 -->
         <div class="pick-slide" id="slide-nine">
@@ -203,8 +204,9 @@
           <div class="pick-score-row">
             <div class="pick-score-chip ps-heat"><div class="ps-lbl">熱度分</div><div class="ps-val" id="nine-heat">—</div></div>
             <div class="pick-score-chip ps-pair"><div class="ps-lbl">關聯分</div><div class="ps-val" id="nine-pair">—</div></div>
-            <div class="pick-score-chip ps-cov"><div class="ps-lbl">區域覆蓋</div><div class="ps-val" id="nine-cov">廣泛</div></div>
+            <div class="pick-score-chip ps-cov"><div class="ps-lbl">命中機率</div><div class="ps-val" id="nine-prob">—</div></div>
           </div>
+          <div id="nine-advice" style="text-align:center;margin-top:6px;font-size:0.82rem;font-weight:600;letter-spacing:0.04em"></div>
         </div>
       </div>
     </div>
@@ -396,6 +398,37 @@ async function load() {
   }
 }
 
+function renderProb(probId, adviceId, prob, avgHits) {
+  const el = document.getElementById(probId);
+  const adv = document.getElementById(adviceId);
+  if (!el) return;
+  el.textContent = (prob != null ? prob + '%' : '—');
+  // 顏色
+  if (prob >= 60) {
+    el.style.color = '#4cde80';        // 綠
+  } else if (prob >= 50) {
+    el.style.color = '#f5c842';        // 黃
+  } else {
+    el.style.color = '#ff6b6b';        // 紅
+  }
+  // 建議標籤
+  if (adv) {
+    let txt = '', color = '';
+    if (prob >= 60) {
+      txt = `✅ 建議買進　近50期均中 ${avgHits} 球`;
+      color = '#4cde80';
+    } else if (prob >= 50) {
+      txt = `⚡ 可考慮　近50期均中 ${avgHits} 球`;
+      color = '#f5c842';
+    } else {
+      txt = `⛔ 建議跳過　近50期均中 ${avgHits} 球`;
+      color = '#ff6b6b';
+    }
+    adv.textContent = txt;
+    adv.style.color = color;
+  }
+}
+
 async function loadPick() {
   try {
     const r = await fetch('/api/bingo/pick');
@@ -409,6 +442,7 @@ async function loadPick() {
     ).join('');
     document.getElementById('six-heat').textContent = d.scores.six_heat;
     document.getElementById('six-pair').textContent = d.scores.six_pair;
+    renderProb('six-prob', 'six-advice', d.scores.six_prob, d.scores.six_avg);
 
     // 9星
     const sixSet = new Set(d.six);
@@ -418,6 +452,7 @@ async function loadPick() {
     ).join('');
     document.getElementById('nine-heat').textContent = d.scores.nine_heat;
     document.getElementById('nine-pair').textContent = d.scores.nine_pair;
+    renderProb('nine-prob', 'nine-advice', d.scores.nine_prob, d.scores.nine_avg);
 
     // 強力關聯對
     if (d.top_pairs && d.top_pairs.length) {

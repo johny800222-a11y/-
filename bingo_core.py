@@ -833,6 +833,86 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
         mx = max_comat
         return round(s / (len(s_pairs) * mx) * 100) if s_pairs else 0
 
+    # ── 回測命中分 ────────────────────────────────────────────────
+    def backtest_score(nums, min_hits, lookback=50):
+        """
+        近 lookback 期中，命中球數 >= min_hits 的比率（0-100）。
+        用 >=2 (6星) / >=3 (9星) 作門檻比 >=1 更有鑑別度。
+        """
+        ball_cols = sorted(
+            [c for c in df.columns if c.startswith("n") and c[1:].isdigit()],
+            key=lambda x: int(x[1:])
+        )
+        recent = df.tail(lookback)
+        num_set = set(nums)
+        hit_count, total = 0, 0
+        for _, row in recent.iterrows():
+            drawn = set(int(row[c]) for c in ball_cols if row[c] > 0)
+            if drawn:
+                total += 1
+                if len(num_set & drawn) >= min_hits:
+                    hit_count += 1
+        return round(hit_count / total * 100) if total else 0
+
+    def avg_hits_backtest(nums, lookback=50):
+        """近 lookback 期平均命中球數"""
+        ball_cols = sorted(
+            [c for c in df.columns if c.startswith("n") and c[1:].isdigit()],
+            key=lambda x: int(x[1:])
+        )
+        recent = df.tail(lookback)
+        num_set = set(nums)
+        total_hits, total = 0, 0
+        for _, row in recent.iterrows():
+            drawn = set(int(row[c]) for c in ball_cols if row[c] > 0)
+            if drawn:
+                total += 1
+                total_hits += len(num_set & drawn)
+        return round(total_hits / total, 2) if total else 0.0
+
+    # ── 迭代學習分 ────────────────────────────────────────────────
+    def learner_score(nums):
+        """
+        從 bingo_learner 取迭代學習權重，計算選號組合的學習分（0-100）。
+        - 號碼權重均值（基準=1.0，>1代表模型看好）
+        - 數對學習權重均值（基準=1.0，>1代表此對歷史表現佳）
+        兩者相乘後正規化：1.0 → 50分，0.5 → 0分，2.0 → 100分（線性插值）
+        """
+        import bingo_learner as _bl
+        state = _bl.load_state()
+        w_map = {int(k): v for k, v in state.get("weights", {}).items()}
+        pw_map = state.get("pair_weights", {})
+
+        # 號碼平均權重
+        num_w = [w_map.get(n, 1.0) for n in nums]
+        avg_num_w = sum(num_w) / len(num_w) if num_w else 1.0
+
+        # 選號內所有數對的學習權重平均
+        pairs_in = [(min(a, b), max(a, b))
+                    for i, a in enumerate(nums) for b in nums[i+1:]]
+        pw_vals = [pw_map.get(f"{a},{b}", 1.0) for a, b in pairs_in]
+        avg_pair_w = sum(pw_vals) / len(pw_vals) if pw_vals else 1.0
+
+        # 綜合乘積（兩者皆 1.0 → 50分基準）
+        combined = avg_num_w * avg_pair_w
+        # 線性映射：0.5→0, 1.0→50, 2.0→100（超出邊界夾緊）
+        score = (combined - 0.5) / (2.0 - 0.5) * 100
+        return round(max(0, min(100, score)))
+
+    # ── 綜合命中機率 ──────────────────────────────────────────────
+    def combined_prob(nums, min_hits):
+        """
+        三因子加權綜合機率（0-100）：
+          40% 回測命中率（近50期，>=min_hits球）
+          40% 迭代學習分（learner weights × pair_weights）
+          20% 熱度×關聯分（heat + pair score 均值）
+        """
+        bt  = backtest_score(nums, min_hits, lookback=50)
+        ls  = learner_score(nums)
+        hps = (heat_score(nums) + pair_score(nums)) / 2
+        score = bt * 0.40 + ls * 0.40 + hps * 0.20
+        return round(score)
+
     # 標示選號中包含的強力對
     def find_strong_pairs_in(nums):
         result = []
@@ -845,17 +925,21 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
 
     return {
         "hot_top10":      hot_top10,
-        "top_pairs":      top_pairs[:4],              # 前4二同數強力對
-        "top_triplets":   top_triplets,               # 前5三同數強力組
-        "top_consec":     top_consec,                 # 前5連號對
+        "top_pairs":      top_pairs[:4],
+        "top_triplets":   top_triplets,
+        "top_consec":     top_consec,
         "six":            sorted(six),
         "nine":           sorted(nine),
         "six_pairs":      find_strong_pairs_in(six),
         "nine_pairs":     find_strong_pairs_in(nine),
         "scores": {
-            "six_heat":   heat_score(six),
-            "six_pair":   pair_score(six),
-            "nine_heat":  heat_score(nine),
-            "nine_pair":  pair_score(nine),
+            "six_heat":     heat_score(six),
+            "six_pair":     pair_score(six),
+            "six_prob":     combined_prob(six,  min_hits=2),   # 綜合命中機率
+            "six_avg":      avg_hits_backtest(six),             # 近50期平均命中球數
+            "nine_heat":    heat_score(nine),
+            "nine_pair":    pair_score(nine),
+            "nine_prob":    combined_prob(nine, min_hits=3),
+            "nine_avg":     avg_hits_backtest(nine),
         }
     }
