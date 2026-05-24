@@ -721,12 +721,90 @@ def _load_champions() -> dict:
     return {"champions": []}
 
 def _save_champions(data: dict):
-    CHAMPIONS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    _atomic_write(CHAMPIONS_FILE, data)
+
+
+def _analyze_bet_patterns(user_id: str) -> dict:
+    """
+    分析玩家的選號習慣，回傳統計摘要：
+    - 各玩法使用次數與勝率
+    - 慣用幾星（pick_count 分佈）
+    - 慣用連投期數
+    - 整體命中率、ROI
+    """
+    from collections import Counter as _C
+    bets = get_user_bets(user_id, limit=9999)
+    if not bets:
+        return {}
+
+    # 玩法分布
+    type_cnt  = _C(b["bet_type"] for b in bets)
+    # 每種玩法的命中次數（至少中1球/有獎）
+    type_wins = _C()
+    type_cost = _C()
+    type_income = _C()
+    for b in bets:
+        t = b["bet_type"]
+        type_cost[t]   += b.get("total_cost", 0)
+        type_income[t] += sum(r.get("win_amount", 0) for r in b.get("results", []))
+        for r in b.get("results", []):
+            if r.get("win_amount", 0) > 0:
+                type_wins[t] += 1
+
+    bet_types_stat = []
+    for t, cnt in type_cnt.most_common():
+        total_periods = sum(len(b["results"]) for b in bets if b["bet_type"] == t)
+        win_p = type_wins[t]
+        cost  = type_cost[t]
+        income = type_income[t]
+        bet_types_stat.append({
+            "type":          t,
+            "count":         cnt,              # 投注單數
+            "total_periods": total_periods,    # 合計期數
+            "win_periods":   win_p,            # 有獎期數
+            "win_rate":      round(win_p / total_periods * 100, 1) if total_periods else 0,
+            "cost":          cost,
+            "income":        income,
+            "roi":           round((income - cost) / cost * 100, 1) if cost else 0,
+        })
+
+    # 幾星偏好
+    star_cnt = _C(b.get("pick_count", 0) for b in bets if b["bet_type"] == "直玩")
+    star_pref = [{"stars": k, "count": v} for k, v in star_cnt.most_common(5)]
+
+    # 連投偏好
+    repeat_cnt = _C(b.get("repeat_draws", 1) for b in bets)
+    repeat_pref = [{"draws": k, "count": v} for k, v in repeat_cnt.most_common(5)]
+
+    # 整體
+    total_cost   = sum(b.get("total_cost", 0) for b in bets)
+    total_income = sum(r.get("win_amount", 0) for b in bets for r in b.get("results", []))
+    total_periods = sum(len(b["results"]) for b in bets)
+    win_periods  = sum(1 for b in bets for r in b.get("results", []) if r.get("win_amount", 0) > 0)
+
+    # 最擅長玩法（ROI 最高，且至少 3 期以上）
+    best = max(
+        (s for s in bet_types_stat if s["total_periods"] >= 3),
+        key=lambda s: s["roi"], default=None
+    )
+
+    return {
+        "bet_types":     bet_types_stat,
+        "star_pref":     star_pref,
+        "repeat_pref":   repeat_pref,
+        "total_bets":    len(bets),
+        "total_cost":    total_cost,
+        "total_income":  total_income,
+        "roi":           round((total_income - total_cost) / total_cost * 100, 1) if total_cost else 0,
+        "win_rate":      round(win_periods / total_periods * 100, 1) if total_periods else 0,
+        "best_type":     best["type"] if best else None,
+        "best_roi":      best["roi"]  if best else None,
+    }
 
 
 def save_weekly_champion() -> dict:
     """
-    快照當週排行榜第一名（含完整排行榜）
+    快照當週排行榜第一名（含完整排行榜 + 各玩家選號習慣統計）
     每週一 00:05 由 APScheduler 呼叫
     """
     board = get_leaderboard()
@@ -739,12 +817,17 @@ def save_weekly_champion() -> dict:
     week_start = week_end - timedelta(days=6)               # 上週一
     iso_week   = week_start.strftime("%Y-W%W")              # e.g. 2026-W21
 
-    # 補充每位玩家的勝率
+    # 補充每位玩家的勝率 + 選號習慣
     full_board = []
     for p in board:
-        stats = get_user_stats(p["id"])
-        full_board.append({**p, "win_rate": stats.get("win_rate", 0),
-                           "total_periods": stats.get("total_periods", 0)})
+        stats    = get_user_stats(p["id"])
+        patterns = _analyze_bet_patterns(p["id"])
+        full_board.append({
+            **p,
+            "win_rate":      stats.get("win_rate", 0),
+            "total_periods": stats.get("total_periods", 0),
+            "bet_patterns":  patterns,
+        })
 
     champion = full_board[0]
 
@@ -763,7 +846,7 @@ def save_weekly_champion() -> dict:
         "leaderboard":  full_board,
     }
     data["champions"].insert(0, record)  # 最新在最前
-    _save_champions(data)
+    _atomic_write(CHAMPIONS_FILE, data)
     return {"ok": True, "week": iso_week, "champion": champion["name"]}
 
 

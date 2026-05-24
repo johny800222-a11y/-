@@ -965,15 +965,44 @@ async function loadWeeklyChampions() {
     const pnlStr   = (c.pnl >= 0 ? '+' : '') + c.pnl.toLocaleString();
     const boardRows = (rec.leaderboard||[]).map((u,i) => {
       const pc = u.pnl >= 0 ? 'var(--green)' : 'var(--red)';
+      const bp = u.bet_patterns || {};
+      const bestType = bp.best_type ? `${bp.best_type}(ROI ${bp.best_roi>0?'+':''}${bp.best_roi}%)` : '—';
+      const starPref = (bp.star_pref||[]).map(s=>`${s.stars}星×${s.count}`).join(' / ') || '—';
       return `<tr>
         <td style="text-align:center">${ranks[i]||(i+1)}</td>
         <td><strong>${u.name}</strong></td>
         <td>NT$${u.balance.toLocaleString()}</td>
         <td style="color:${pc}">${u.pnl>=0?'+':''}${u.pnl.toLocaleString()}</td>
         <td>${u.win_rate||0}%</td>
-        <td style="color:var(--muted);font-size:.8rem">${u.total_bet.toLocaleString()}</td>
+        <td style="color:var(--muted);font-size:.78rem">${bestType}</td>
+        <td style="color:var(--muted);font-size:.78rem">${starPref}</td>
       </tr>`;
     }).join('');
+
+    // 冠軍選號習慣卡片
+    const cp = c.bet_patterns || {};
+    const cpTypes = (cp.bet_types||[]).map(t => {
+      const roiColor = t.roi >= 0 ? 'var(--green)' : 'var(--red)';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:.82rem">
+        <span style="color:var(--yellow);font-weight:600">${t.type}</span>
+        <span style="color:var(--muted)">${t.count}單｜${t.total_periods}期</span>
+        <span>勝率 ${t.win_rate}%</span>
+        <span style="color:${roiColor};font-weight:600">ROI ${t.roi>0?'+':''}${t.roi}%</span>
+      </div>`;
+    }).join('');
+    const cpStar = (cp.star_pref||[]).map(s=>`<span style="background:var(--card2);padding:3px 8px;border-radius:20px;font-size:.8rem">${s.stars}星 ${s.count}次</span>`).join('');
+    const cpRepeat = (cp.repeat_pref||[]).map(r=>`<span style="background:var(--card2);padding:3px 8px;border-radius:20px;font-size:.8rem">連投${r.draws}期 ${r.count}次</span>`).join('');
+    const patternCard = cp.total_bets ? `
+      <details style="margin-top:10px">
+        <summary style="cursor:pointer;font-size:.82rem;color:var(--accent);margin-bottom:8px">📊 冠軍選號習慣分析</summary>
+        <div style="margin-top:8px">
+          ${cpTypes || '<div style="color:var(--muted);font-size:.82rem">無投注記錄</div>'}
+          ${cpStar ? `<div style="margin-top:8px"><span style="color:var(--muted);font-size:.78rem">幾星偏好：</span>${cpStar}</div>` : ''}
+          ${cpRepeat ? `<div style="margin-top:6px"><span style="color:var(--muted);font-size:.78rem">連投偏好：</span>${cpRepeat}</div>` : ''}
+          <div style="margin-top:8px;font-size:.78rem;color:var(--muted)">整體 ROI：<span style="color:${cp.roi>=0?'var(--green)':'var(--red)'};font-weight:700">${cp.roi>0?'+':''}${cp.roi}%</span>　總投注 NT$${(cp.total_cost||0).toLocaleString()}　總回收 NT$${(cp.total_income||0).toLocaleString()}</div>
+        </div>
+      </details>` : '';
+
     return `
     <div class="section" style="margin-bottom:18px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px;margin-bottom:12px">
@@ -987,7 +1016,8 @@ async function loadWeeklyChampions() {
           <div style="font-size:.78rem;color:var(--muted)">勝率 ${c.win_rate||0}% ｜ 投注 NT$${c.total_bet.toLocaleString()}</div>
         </div>
       </div>
-      <details>
+      ${patternCard}
+      <details style="margin-top:10px">
         <summary style="cursor:pointer;font-size:.82rem;color:var(--accent);margin-bottom:8px">▾ 查看完整週排行</summary>
         <div style="overflow-x:auto;margin-top:6px">
           <table style="width:100%;border-collapse:collapse;font-size:.82rem">
@@ -995,7 +1025,8 @@ async function loadWeeklyChampions() {
               <tr style="color:var(--muted);border-bottom:1px solid var(--border)">
                 <th style="padding:5px 8px">名次</th><th style="padding:5px 8px;text-align:left">玩家</th>
                 <th style="padding:5px 8px">餘額</th><th style="padding:5px 8px">損益</th>
-                <th style="padding:5px 8px">勝率</th><th style="padding:5px 8px">總投注</th>
+                <th style="padding:5px 8px">勝率</th><th style="padding:5px 8px">最佳打法</th>
+                <th style="padding:5px 8px">幾星偏好</th>
               </tr>
             </thead>
             <tbody style="text-align:center">${boardRows}</tbody>
