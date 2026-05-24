@@ -26,6 +26,8 @@ import pytz
 
 _TW       = pytz.timezone("Asia/Taipei")
 _DATA_DIR = Path("/data") if Path("/data").exists() else Path(__file__).parent
+_BACKUP_DIR = _DATA_DIR / "backups"
+_BACKUP_DIR.mkdir(exist_ok=True)
 
 USERS_FILE     = _DATA_DIR / "virtual_users.json"
 BETS_FILE      = _DATA_DIR / "virtual_bets.json"
@@ -92,19 +94,51 @@ def _load_users() -> dict:
             pass
     return {"users": []}
 
+def _atomic_write(path: Path, data: dict):
+    """
+    安全寫入：先備份現有檔案，再寫入 temp 後 rename，
+    確保任何寫入失敗都不會損毀原始資料。
+    """
+    text = json.dumps(data, ensure_ascii=False, indent=2)
+    # 驗證 JSON 合法
+    json.loads(text)
+    # 備份（每日最多保留 3 份，超出自動刪除舊備份）
+    if path.exists():
+        ts = datetime.now(_TW).strftime("%Y%m%d_%H%M%S")
+        bk = _BACKUP_DIR / f"{path.stem}_{ts}.json"
+        bk.write_text(path.read_text())
+        # 清理超過 3 份的舊備份
+        old_bks = sorted(_BACKUP_DIR.glob(f"{path.stem}_*.json"))
+        for old in old_bks[:-3]:
+            old.unlink(missing_ok=True)
+    # Atomic: 寫入 temp → rename
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(text)
+    tmp.replace(path)
+
 def _save_users(data: dict):
-    USERS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    _atomic_write(USERS_FILE, data)
 
 def _load_bets() -> dict:
     if BETS_FILE.exists():
         try:
             return json.loads(BETS_FILE.read_text())
         except Exception:
-            pass
+            # 嘗試從最新備份恢復
+            bks = sorted(_BACKUP_DIR.glob("virtual_bets_*.json"))
+            for bk in reversed(bks):
+                try:
+                    data = json.loads(bk.read_text())
+                    if data.get("bets"):
+                        # 恢復備份
+                        BETS_FILE.write_text(bk.read_text())
+                        return data
+                except Exception:
+                    continue
     return {"bets": []}
 
 def _save_bets(data: dict):
-    BETS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    _atomic_write(BETS_FILE, data)
 
 
 def init_users(accounts: list) -> dict:
