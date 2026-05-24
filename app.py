@@ -486,6 +486,27 @@ def api_virtual_bets():
     return jsonify({"ok": True, "bets": bets})
 
 
+@app.route("/api/virtual/debug_bets_file")
+def api_debug_bets_file():
+    """臨時診斷：確認 virtual_bets.json 實際狀況"""
+    import os
+    path = virtual_bingo.BETS_FILE
+    exists = path.exists()
+    size = path.stat().st_size if exists else 0
+    raw = ""
+    parse_err = ""
+    count = 0
+    if exists:
+        try:
+            raw = path.read_text()[:500]
+            data = json.loads(path.read_text())
+            count = len(data.get("bets", []))
+        except Exception as e:
+            parse_err = str(e)
+    return jsonify({"exists": exists, "size": size, "count": count,
+                    "parse_err": parse_err, "preview": raw})
+
+
 @app.route("/api/virtual/leaderboard")
 def api_virtual_leaderboard():
     return jsonify({"ok": True, "board": virtual_bingo.get_leaderboard()})
