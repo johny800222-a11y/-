@@ -186,25 +186,17 @@ header{background:var(--card);border-bottom:1px solid var(--border);padding:11px
 .chat-del-btn:hover{color:var(--red);opacity:1}
 .chat-system{text-align:center;font-size:.77rem;color:var(--muted);padding:4px 0}
 .emoji-picker{display:flex;gap:5px;flex-wrap:wrap;padding:6px 0}
-/* ── 城池大戰 ── */
-.castle-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;position:relative;transition:border-color .2s}
-.castle-card.mine{border-color:var(--accent)44}
-.castle-card.fallen{border-color:var(--red)88;opacity:.8}
-.castle-hp-bar{height:10px;border-radius:5px;background:var(--card2);margin:6px 0;overflow:hidden}
-.castle-hp-fill{height:100%;border-radius:5px;transition:width .5s;background:linear-gradient(90deg,#ff4444,#ff8800,#4cde80)}
-.castle-unit-card{flex:1;min-width:80px;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 6px;text-align:center;cursor:pointer;transition:border-color .2s}
-.castle-unit-card:hover{border-color:var(--accent)}
-.unit-emoji{font-size:1.6rem}
-.unit-name{font-size:.75rem;font-weight:700;margin:4px 0 2px}
-.unit-stat{font-size:.68rem;color:var(--muted)}
-.unit-cost{font-size:.72rem;color:var(--yellow);margin-top:2px}
-.castle-btn{background:var(--card2);border:1px solid var(--border);color:#fff;border-radius:8px;padding:8px 12px;cursor:pointer;font-size:.8rem;transition:border-color .2s}
-.castle-btn:hover{border-color:var(--accent)}
-.battle-entry{padding:6px 0;border-bottom:1px solid var(--border)11;display:flex;gap:6px;align-items:flex-start}
-.battle-entry:last-child{border-bottom:none}
+/* ── 城池大戰入口 ── */
+.castle-fab{position:fixed;right:0;top:50%;transform:translateY(-50%);background:linear-gradient(135deg,#1a2a4a,#2a1a4a);border:1px solid #6c63ff55;border-right:none;border-radius:12px 0 0 12px;padding:12px 8px;cursor:pointer;z-index:80;writing-mode:vertical-rl;font-size:.78rem;color:#a78bfa;letter-spacing:.08em;box-shadow:-3px 0 12px #0006;transition:background .2s}
+.castle-fab:hover{background:linear-gradient(135deg,#2a3a6a,#3a2a6a)}
 </style>
 </head>
 <body>
+
+<!-- 城池大戰 FAB 入口 -->
+<div class="castle-fab" id="castle-fab" onclick="goToCastle()" style="display:none">
+  🏰 城池大戰
+</div>
 
 <!-- ══════════ LOGIN ══════════ -->
 <div id="login-screen">
@@ -258,7 +250,6 @@ header{background:var(--card);border-bottom:1px solid var(--border);padding:11px
     <div class="tab" onclick="switchTab('board')">🏆 排行榜</div>
     <div class="tab" onclick="switchTab('weekly')">👑 週冠軍</div>
     <div class="tab" onclick="switchTab('chat')">💬 聊天室 <span id="chat-badge" style="display:none;background:var(--red);border-radius:10px;padding:1px 6px;font-size:.7rem;color:#fff;margin-left:3px">NEW</span></div>
-    <div class="tab" onclick="switchTab('castle')">🏰 城池大戰</div>
     <div class="tab" onclick="switchTab('odds')">📊 賠率表</div>
     <div class="tab" onclick="switchTab('profile')">⚙️ 設定</div>
   </div>
@@ -394,111 +385,6 @@ header{background:var(--card);border-bottom:1px solid var(--border);padding:11px
       <button class="btn btn-sm btn-gray" onclick="loadWeeklyChampions()">🔄 重新整理</button>
     </div>
     <div id="weekly-list"><div class="loading">載入中...</div></div>
-  </div>
-
-  <!-- ─── TAB: 城池大戰 ─── -->
-  <div class="tab-content" id="tab-castle">
-    <div id="castle-loading" style="text-align:center;padding:40px;color:var(--muted)">⚔️ 載入中...</div>
-    <div id="castle-main" style="display:none">
-
-      <!-- 點數說明 -->
-      <div class="section" style="margin-bottom:14px;background:linear-gradient(135deg,#1a1a2e,#16213e);border:1px solid #f5c84233">
-        <div style="font-size:.82rem;color:var(--muted);line-height:1.8">
-          💎 <strong style="color:var(--yellow)">城池點數獲取</strong>：下注即得點數，用於招募部隊、升級城防<br>
-          　買 <b>1期</b>=10點 ｜ 買 <b>10期</b>=120點 ｜ 買 <b>20期</b>=250點（上限）
-        </div>
-      </div>
-
-      <!-- 城池地圖 -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px" id="castle-grid"></div>
-
-      <!-- 我的行動面板 -->
-      <div class="section" id="castle-action-panel">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <span style="font-weight:700;font-size:1rem">⚔️ 行動面板</span>
-          <span style="color:var(--yellow);font-weight:700">💎 <span id="my-castle-pts">0</span> 點</span>
-        </div>
-
-        <!-- 招募 -->
-        <div style="margin-bottom:12px">
-          <div style="font-size:.8rem;color:var(--muted);margin-bottom:6px">🪖 招募部隊</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <div class="castle-unit-card" onclick="openRecruit('soldier')">
-              <div class="unit-emoji">🗡️</div>
-              <div class="unit-name">小兵</div>
-              <div class="unit-stat">ATK 25</div>
-              <div class="unit-cost">10 點/隊</div>
-            </div>
-            <div class="castle-unit-card" onclick="openRecruit('elite')">
-              <div class="unit-emoji">⚔️</div>
-              <div class="unit-name">強化小兵</div>
-              <div class="unit-stat">ATK 80</div>
-              <div class="unit-cost">30 點/隊</div>
-            </div>
-            <div class="castle-unit-card" onclick="openRecruit('catapult')">
-              <div class="unit-emoji">💣</div>
-              <div class="unit-name">投石車</div>
-              <div class="unit-stat">ATK 200 穿甲50%</div>
-              <div class="unit-cost">80 點/隊</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 城防 -->
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="castle-btn" onclick="upgradeWall()">🧱 升級城牆 <small>(20點/級，最多4級)</small></button>
-          <button class="castle-btn" onclick="buyShield()">🛡️ 購買護盾 <small>(50點，擋一次攻擊)</small></button>
-        </div>
-      </div>
-
-      <!-- 攻擊面板（點攻打後展開）-->
-      <div class="section" id="attack-panel" style="display:none;border:1px solid var(--red)33">
-        <div style="font-weight:700;margin-bottom:10px;color:var(--red)">⚔️ 攻打 <span id="attack-target-name"></span></div>
-        <div style="font-size:.82rem;color:var(--muted);margin-bottom:10px">選擇派出的部隊（各類型輸入數量）：</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-          <label style="display:flex;flex-direction:column;align-items:center;gap:4px;font-size:.8rem">
-            🗡️ 小兵<br><span id="atk-soldier-avail" style="color:var(--muted);font-size:.72rem"></span>
-            <input type="number" id="atk-soldier" min="0" value="0" style="width:60px;text-align:center;background:var(--card2);border:1px solid var(--border);color:#fff;border-radius:6px;padding:4px">
-          </label>
-          <label style="display:flex;flex-direction:column;align-items:center;gap:4px;font-size:.8rem">
-            ⚔️ 強化小兵<br><span id="atk-elite-avail" style="color:var(--muted);font-size:.72rem"></span>
-            <input type="number" id="atk-elite" min="0" value="0" style="width:60px;text-align:center;background:var(--card2);border:1px solid var(--border);color:#fff;border-radius:6px;padding:4px">
-          </label>
-          <label style="display:flex;flex-direction:column;align-items:center;gap:4px;font-size:.8rem">
-            💣 投石車<br><span id="atk-catapult-avail" style="color:var(--muted);font-size:.72rem"></span>
-            <input type="number" id="atk-catapult" min="0" value="0" style="width:60px;text-align:center;background:var(--card2);border:1px solid var(--border);color:#fff;border-radius:6px;padding:4px">
-          </label>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn-primary" style="flex:1" onclick="launchAttack()">⚔️ 發動攻擊</button>
-          <button class="castle-btn" onclick="closeAttack()">取消</button>
-        </div>
-      </div>
-
-      <!-- 戰役記錄 -->
-      <div class="section">
-        <div style="font-weight:700;margin-bottom:10px">📜 戰役記錄</div>
-        <div id="battle-log" style="font-size:.8rem;max-height:240px;overflow-y:auto"></div>
-      </div>
-    </div>
-
-    <!-- 招募彈窗 -->
-    <div id="recruit-modal" style="display:none;position:fixed;inset:0;background:#000a;z-index:200;align-items:center;justify-content:center">
-      <div style="background:var(--card);border-radius:16px;padding:24px;width:min(320px,90vw);border:1px solid var(--border)">
-        <div style="font-weight:700;font-size:1.1rem;margin-bottom:16px">🪖 招募 <span id="recruit-unit-name"></span></div>
-        <div style="font-size:.82rem;color:var(--muted);margin-bottom:12px">你的點數：<strong id="recruit-pts-display" style="color:var(--yellow)"></strong></div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
-          <button onclick="recruitAdj(-1)" style="background:var(--card2);border:none;color:#fff;width:36px;height:36px;border-radius:8px;font-size:1.2rem;cursor:pointer">－</button>
-          <input type="number" id="recruit-count" min="1" value="1" style="flex:1;text-align:center;font-size:1.1rem;background:var(--card2);border:1px solid var(--border);color:#fff;border-radius:8px;padding:8px">
-          <button onclick="recruitAdj(1)" style="background:var(--card2);border:none;color:#fff;width:36px;height:36px;border-radius:8px;font-size:1.2rem;cursor:pointer">＋</button>
-        </div>
-        <div style="font-size:.82rem;color:var(--muted);margin-bottom:16px">費用：<strong id="recruit-cost-display" style="color:var(--red)"></strong> 點</div>
-        <div style="display:flex;gap:8px">
-          <button class="btn-primary" style="flex:1" onclick="confirmRecruit()">確認招募</button>
-          <button class="castle-btn" onclick="closeRecruitModal()">取消</button>
-        </div>
-      </div>
-    </div>
   </div>
 
   <!-- ─── TAB: 賠率表 ─── -->
@@ -639,6 +525,7 @@ function doLogout() {
 function showMain() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('main-screen').style.display = 'block';
+  document.getElementById('castle-fab').style.display = 'block';
   // 預設在下注頁，彈幕層直接啟用
   document.getElementById('danmaku-layer').classList.add('active');
   updateHeader(); loadHistory('pending'); loadBoard(); startChatPoller();
@@ -671,7 +558,7 @@ function updateHeader() {
 // TABS
 // ════════════════════════════════════════════════════════════
 function switchTab(name) {
-  const tabs = ['bet','history','board','weekly','chat','castle','odds','profile'];
+  const tabs = ['bet','history','board','weekly','chat','odds','profile'];
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',tabs[i]===name));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
@@ -681,7 +568,6 @@ function switchTab(name) {
   if (name==='board')   loadBoard();
   if (name==='weekly')  loadWeeklyChampions();
   if (name==='chat')  { chatHide=false; document.getElementById('chat-badge').style.display='none'; loadChat(true); }
-  if (name==='castle')  loadCastle();
   if (name==='profile') loadProfile();
 }
 
@@ -1164,224 +1050,21 @@ async function loadWeeklyChampions() {
 // CHAT
 // ════════════════════════════════════════════════════════════
 // ════════════════════════════════════════════════════════════
-// CASTLE WAR
+// CASTLE ENTRY (swipe left or FAB to go to castle page)
 // ════════════════════════════════════════════════════════════
-const UNIT_INFO = {
-  soldier:  {name:'小兵',   emoji:'🗡️', atk:25,  cost:10},
-  elite:    {name:'強化小兵',emoji:'⚔️', atk:80,  cost:30},
-  catapult: {name:'投石車', emoji:'💣', atk:200, cost:80},
-};
-
-let _castleData = [];
-let _attackTargetId = null;
-let _recruitUnitKey = null;
-
-async function loadCastle() {
-  document.getElementById('castle-loading').style.display='block';
-  document.getElementById('castle-main').style.display='none';
-  // 先確保自己有城池
-  const me = currentUser;
-  if (me) {
-    await fetch('/api/castle/init', {method:'POST',headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({user_id: me.id, name: me.name})});
-  }
-  const d = await fetch('/api/castle/state').then(r=>r.json()).catch(()=>({ok:false}));
-  if (!d.ok) return;
-  _castleData = d.castles;
-  renderCastle(d.castles, d.log);
-  document.getElementById('castle-loading').style.display='none';
-  document.getElementById('castle-main').style.display='block';
+function goToCastle() {
+  // 把 session 傳到城池頁面（localStorage 共用）
+  window.location.href = '/virtual/castle';
 }
-
-function renderCastle(castles, log) {
-  const me = currentUser;
-  const grid = document.getElementById('castle-grid');
-  grid.innerHTML = castles.map(c => {
-    const hpPct = Math.round(c.hp / 500 * 100);
-    const hpColor = hpPct > 60 ? '#4cde80' : hpPct > 30 ? '#f5c842' : '#ff6b6b';
-    const isMine = me && c.user_id === me.id;
-    const isBanned = c.is_banned;
-    const armyStr = [
-      c.army.soldier  ? `🗡️×${c.army.soldier}` : '',
-      c.army.elite    ? `⚔️×${c.army.elite}` : '',
-      c.army.catapult ? `💣×${c.army.catapult}` : '',
-    ].filter(Boolean).join(' ') || '無部隊';
-    const wallStr = c.wall_level > 0 ? `🧱×${c.wall_level} (DEF${c.defense})` : 'DEF 0';
-    const shieldStr = c.has_shield ? ' 🛡️護盾' : '';
-    const bannedBadge = isBanned ? `<div style="background:#ff4444;color:#fff;border-radius:6px;padding:2px 8px;font-size:.72rem;margin-top:4px">${c.ban_msg}</div>` : '';
-    const fallen = c.hp <= FALLEN_HP && c.hp < 500;
-
-    return `<div class="castle-card${isMine?' mine':''}${fallen&&!isMine?' fallen':''}">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div>
-          <div style="font-size:1.5rem">🏰</div>
-          <div style="font-weight:700;font-size:.9rem">${c.name}</div>
-          ${isMine ? '<div style="font-size:.7rem;color:var(--accent)">◀ 我的城池</div>' : ''}
-        </div>
-        <div style="text-align:right;font-size:.75rem;color:var(--muted)">
-          ${wallStr}${shieldStr}
-        </div>
-      </div>
-      <div class="castle-hp-bar">
-        <div class="castle-hp-fill" style="width:${hpPct}%;background:${hpColor}"></div>
-      </div>
-      <div style="font-size:.78rem;display:flex;justify-content:space-between">
-        <span>❤️ ${c.hp}/500 HP</span>
-        <span style="color:var(--yellow)">💎 ${c.points}點</span>
-      </div>
-      <div style="font-size:.75rem;color:var(--muted);margin-top:4px">${armyStr}</div>
-      ${bannedBadge}
-      ${!isMine && !isBanned ? `<button class="castle-btn" style="width:100%;margin-top:8px;border-color:var(--red)44;color:var(--red)" onclick="openAttack('${c.user_id}','${c.name}')">⚔️ 攻打</button>` : ''}
-    </div>`;
-  }).join('');
-
-  // 更新我的點數
-  const myCastle = castles.find(c => me && c.user_id === me.id);
-  if (myCastle) {
-    document.getElementById('my-castle-pts').textContent = myCastle.points;
-    // 存 army 供攻擊彈窗用
-    window._myArmy = myCastle.army;
-  }
-
-  // 戰役記錄
-  const logEl = document.getElementById('battle-log');
-  if (!log || !log.length) {
-    logEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:16px">尚無戰役記錄</div>';
-  } else {
-    logEl.innerHTML = log.map(l => {
-      const icon = l.fallen ? '💥' : l.shielded ? '🛡️' : '⚔️';
-      const dmgColor = l.fallen ? 'var(--red)' : l.shielded ? 'var(--accent)' : '#fff';
-      const bonus = l.bonus_pts ? ` +${l.bonus_pts}點` : '';
-      const fallen = l.fallen ? ' <b style="color:var(--red)">城池陷落！</b>' : '';
-      const shield = l.shielded ? ' <span style="color:var(--accent)">護盾抵擋！</span>' : '';
-      return `<div class="battle-entry">
-        <span style="font-size:1.1rem">${icon}</span>
-        <div>
-          <span style="color:var(--yellow)">${l.attacker}</span> 攻打 <span style="color:var(--muted)">${l.defender}</span>
-          ${l.attacker_id==='__system__' ? '<span style="color:#ff4444">（破產懲罰）</span>' : ''}
-          　<span style="color:${dmgColor}">-${l.damage}HP</span>${bonus}${fallen}${shield}
-          <div style="color:var(--muted);font-size:.7rem">${l.time}</div>
-        </div>
-      </div>`;
-    }).join('');
-  }
-}
-
-const FALLEN_HP = 100;
-
-function openAttack(targetId, targetName) {
-  _attackTargetId = targetId;
-  document.getElementById('attack-target-name').textContent = targetName;
-  const army = window._myArmy || {};
-  document.getElementById('atk-soldier-avail').textContent = `擁有 ${army.soldier||0} 隊`;
-  document.getElementById('atk-elite-avail').textContent   = `擁有 ${army.elite||0} 隊`;
-  document.getElementById('atk-catapult-avail').textContent= `擁有 ${army.catapult||0} 隊`;
-  document.getElementById('atk-soldier').value = 0;
-  document.getElementById('atk-elite').value   = 0;
-  document.getElementById('atk-catapult').value= 0;
-  document.getElementById('attack-panel').style.display = 'block';
-  document.getElementById('attack-panel').scrollIntoView({behavior:'smooth'});
-}
-
-function closeAttack() {
-  _attackTargetId = null;
-  document.getElementById('attack-panel').style.display = 'none';
-}
-
-async function launchAttack() {
-  const me = currentUser;
-  if (!me || !_attackTargetId) return;
-  const army = {
-    soldier:  parseInt(document.getElementById('atk-soldier').value)||0,
-    elite:    parseInt(document.getElementById('atk-elite').value)||0,
-    catapult: parseInt(document.getElementById('atk-catapult').value)||0,
-  };
-  const r = await fetch('/api/castle/attack', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({attacker_id: me.id, defender_id: _attackTargetId, ...army})
-  }).then(x=>x.json());
-  if (!r.ok) { alert('❌ ' + r.msg); return; }
-  closeAttack();
-  let msg = r.shielded ? '🛡️ 護盾抵擋了你的攻擊！' :
-            r.fallen   ? `💥 城池陷落！獲得 ${r.bonus_pts} 點獎勵！` :
-                         `⚔️ 造成 ${r.damage} 傷害！`;
-  showToast(msg, r.fallen ? 'success' : 'info');
-  await loadCastle();
-}
-
-function openRecruit(unitKey) {
-  _recruitUnitKey = unitKey;
-  const u = UNIT_INFO[unitKey];
-  document.getElementById('recruit-unit-name').textContent = u.emoji + ' ' + u.name;
-  document.getElementById('recruit-count').value = 1;
-  const myCastle = _castleData.find(c => currentUser && c.user_id === currentUser.id);
-  document.getElementById('recruit-pts-display').textContent = (myCastle?.points||0) + ' 點';
-  updateRecruitCost();
-  document.getElementById('recruit-modal').style.display = 'flex';
-}
-
-function updateRecruitCost() {
-  const u = UNIT_INFO[_recruitUnitKey];
-  const cnt = parseInt(document.getElementById('recruit-count').value)||1;
-  document.getElementById('recruit-cost-display').textContent = u.cost * cnt;
-}
-
-function recruitAdj(delta) {
-  const el = document.getElementById('recruit-count');
-  el.value = Math.max(1, (parseInt(el.value)||1) + delta);
-  updateRecruitCost();
-}
-
-function closeRecruitModal() {
-  document.getElementById('recruit-modal').style.display = 'none';
-  _recruitUnitKey = null;
-}
-
-async function confirmRecruit() {
-  const me = currentUser;
-  if (!me || !_recruitUnitKey) return;
-  const count = parseInt(document.getElementById('recruit-count').value)||1;
-  const r = await fetch('/api/castle/recruit', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({user_id: me.id, unit: _recruitUnitKey, count})
-  }).then(x=>x.json());
-  closeRecruitModal();
-  if (!r.ok) { alert('❌ ' + r.msg); return; }
-  showToast(`✅ 招募 ${UNIT_INFO[_recruitUnitKey].emoji} × ${count}`, 'success');
-  await loadCastle();
-}
-
-async function upgradeWall() {
-  const me = currentUser;
-  if (!me) return;
-  const r = await fetch('/api/castle/upgrade_wall', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({user_id: me.id})
-  }).then(x=>x.json());
-  if (!r.ok) { alert('❌ ' + r.msg); return; }
-  showToast(`🧱 城牆升至 ${r.wall_level} 級（DEF ${r.defense}）`, 'success');
-  await loadCastle();
-}
-
-async function buyShield() {
-  const me = currentUser;
-  if (!me) return;
-  const r = await fetch('/api/castle/buy_shield', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({user_id: me.id})
-  }).then(x=>x.json());
-  if (!r.ok) { alert('❌ ' + r.msg); return; }
-  showToast('🛡️ 護盾已啟動，下一次攻擊將被格擋！', 'success');
-  await loadCastle();
-}
-
-function showToast(msg, type='info') {
-  const t = document.createElement('div');
-  t.style.cssText = `position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:${type==='success'?'#1a5c2a':'#1a2a4a'};color:#fff;padding:10px 20px;border-radius:12px;z-index:999;font-size:.88rem;max-width:80vw;text-align:center;pointer-events:none`;
-  t.textContent = msg;
-  document.body.appendChild(t);
-  setTimeout(()=>t.remove(), 3000);
-}
+// 左滑手勢進城池
+(function(){
+  let sx=0;
+  document.addEventListener('touchstart',e=>{sx=e.touches[0].clientX},{passive:true});
+  document.addEventListener('touchend',e=>{
+    const dx=e.changedTouches[0].clientX-sx;
+    if(dx<-80) goToCastle();
+  },{passive:true});
+})();
 
 const REACTIONS = ["👍","🎯","🔥","😂","😮","💰","🍀","😭"];
 let chatLastId  = null;   // 最後一則訊息 id，用於增量拉取

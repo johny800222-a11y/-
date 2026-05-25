@@ -435,6 +435,10 @@ def api_backup_restore():
 def virtual_index():
     return render_template("virtual_bingo.html")
 
+@app.route("/virtual/castle")
+def virtual_castle():
+    return render_template("castle_war.html")
+
 
 @app.route("/api/virtual/users")
 def api_virtual_users():

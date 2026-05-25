@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>🏰 城池大戰</title>
+<style>
+:root{
+  --bg:#0d0d1a;--card:#13132b;--card2:#1c1c3a;
+  --accent:#6c63ff;--yellow:#f5c842;--red:#ff4d4d;
+  --green:#4cde80;--muted:#888;--border:#2a2a4a;
+  --text:#f0f0ff;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;overflow-x:hidden}
+
+/* ── HEADER ── */
+.cw-header{background:linear-gradient(180deg,#0a0a1e,var(--bg));padding:14px 16px 10px;position:sticky;top:0;z-index:50;border-bottom:1px solid var(--border)22}
+.cw-header-row{display:flex;justify-content:space-between;align-items:center}
+.cw-title{font-size:1.15rem;font-weight:800;letter-spacing:.04em;background:linear-gradient(90deg,#a78bfa,#f5c842);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.back-btn{background:var(--card2);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:6px 12px;font-size:.8rem;cursor:pointer}
+.my-info{display:flex;gap:12px;margin-top:8px;font-size:.8rem}
+.my-pts{color:var(--yellow);font-weight:700}
+.my-hp{color:var(--green)}
+
+/* ── BATTLEFIELD ── */
+.battlefield{padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.castle-card{background:var(--card);border:2px solid var(--border);border-radius:16px;padding:14px;position:relative;transition:all .3s;overflow:hidden}
+.castle-card::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at top,#ffffff08,transparent 70%);pointer-events:none}
+.castle-card.mine{border-color:#6c63ff88;background:linear-gradient(135deg,#13132b,#1a1533)}
+.castle-card.enemy{border-color:#ff4d4d22}
+.castle-card.fallen{border-color:#ff4d4d88;opacity:.75}
+.castle-card.critical{border-color:#f5c84288;animation:pulse-warn 1.5s infinite}
+@keyframes pulse-warn{0%,100%{border-color:#f5c84288}50%{border-color:#ff4d4dcc}}
+
+.castle-art{font-size:2.4rem;text-align:center;line-height:1;margin-bottom:6px;text-shadow:0 0 20px currentColor;position:relative}
+.castle-name{font-weight:800;font-size:.9rem;text-align:center;margin-bottom:8px}
+.mine-badge{font-size:.65rem;color:var(--accent);font-weight:600;text-align:center;margin-top:-6px;margin-bottom:4px}
+
+.hp-bar-wrap{position:relative;height:12px;background:var(--card2);border-radius:6px;overflow:hidden;margin:6px 0}
+.hp-bar-fill{height:100%;border-radius:6px;transition:width .6s ease;position:relative}
+.hp-bar-fill::after{content:'';position:absolute;top:0;left:0;right:0;height:40%;background:rgba(255,255,255,.2);border-radius:6px}
+.hp-text{font-size:.72rem;display:flex;justify-content:space-between;color:var(--muted);margin-bottom:4px}
+
+.castle-stats{display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:.72rem;margin-top:6px}
+.stat-chip{background:var(--card2);border-radius:6px;padding:3px 6px;text-align:center}
+.stat-lbl{color:var(--muted);font-size:.65rem}
+.stat-val{font-weight:700}
+
+.shield-badge{position:absolute;top:8px;right:8px;font-size:1rem}
+.banned-overlay{position:absolute;inset:0;background:#00000088;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:.72rem;color:#ff8888;text-align:center;padding:8px}
+
+.atk-btn{width:100%;margin-top:10px;padding:8px;background:linear-gradient(135deg,#4a0a0a,#6a1515);border:1px solid #ff4d4d55;color:#ff8888;border-radius:10px;font-size:.8rem;font-weight:700;cursor:pointer;transition:all .2s}
+.atk-btn:hover{background:linear-gradient(135deg,#6a1515,#8a2020);border-color:#ff4d4daa}
+.atk-btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ── ACTION PANEL ── */
+.action-panel{margin:0 12px 12px;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px}
+.panel-title{font-weight:700;font-size:.95rem;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+.pts-badge{background:linear-gradient(135deg,#2a2000,#3a3000);border:1px solid var(--yellow)44;border-radius:20px;padding:4px 12px;font-size:.8rem;color:var(--yellow);font-weight:700}
+
+.unit-row{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.unit-btn{flex:1;min-width:80px;background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:10px 6px;text-align:center;cursor:pointer;transition:all .2s}
+.unit-btn:hover{border-color:var(--accent);background:#1a1a3a}
+.u-emoji{font-size:1.8rem}
+.u-name{font-size:.72rem;font-weight:700;margin:3px 0 1px}
+.u-atk{font-size:.65rem;color:var(--muted)}
+.u-cost{font-size:.7rem;color:var(--yellow);margin-top:2px}
+
+.def-row{display:flex;gap:8px;flex-wrap:wrap}
+.def-btn{flex:1;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:8px 10px;font-size:.78rem;cursor:pointer;color:var(--text);transition:border-color .2s;text-align:center}
+.def-btn:hover{border-color:var(--accent)}
+.def-btn small{color:var(--muted);font-size:.68rem}
+
+/* ── BATTLE LOG ── */
+.battle-section{margin:0 12px 80px;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px}
+.log-entry{display:flex;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)22;align-items:flex-start}
+.log-entry:last-child{border-bottom:none}
+.log-icon{font-size:1.2rem;flex-shrink:0;margin-top:1px}
+.log-body{flex:1;font-size:.78rem;line-height:1.6}
+.log-time{font-size:.68rem;color:var(--muted)}
+
+/* ── MODALS ── */
+.modal-bg{display:none;position:fixed;inset:0;background:#000b;z-index:200;align-items:center;justify-content:center;padding:20px}
+.modal-bg.open{display:flex}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:24px;width:100%;max-width:340px}
+.modal h3{font-size:1.05rem;font-weight:700;margin-bottom:16px}
+.modal-pts{font-size:.82rem;color:var(--muted);margin-bottom:12px}
+.qty-row{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.qty-btn{background:var(--card2);border:1px solid var(--border);color:#fff;width:40px;height:40px;border-radius:10px;font-size:1.2rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.qty-inp{flex:1;text-align:center;font-size:1.1rem;background:var(--card2);border:1px solid var(--border);color:#fff;border-radius:10px;padding:8px}
+.modal-cost{font-size:.82rem;margin-bottom:16px;color:var(--muted)}
+.modal-cost span{color:var(--red);font-weight:700}
+.modal-btns{display:flex;gap:8px}
+.btn-confirm{flex:1;padding:11px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:.9rem;font-weight:700;cursor:pointer}
+.btn-cancel{padding:11px 16px;background:var(--card2);border:1px solid var(--border);color:var(--muted);border-radius:10px;font-size:.9rem;cursor:pointer}
+
+/* ── ATTACK MODAL ── */
+.atk-army-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px}
+.atk-unit{text-align:center;background:var(--card2);border-radius:10px;padding:8px 6px}
+.atk-unit-emoji{font-size:1.3rem}
+.atk-unit-name{font-size:.68rem;color:var(--muted);margin:2px 0}
+.atk-avail{font-size:.65rem;color:var(--accent);margin-bottom:4px}
+.atk-inp{width:100%;text-align:center;background:var(--bg);border:1px solid var(--border);color:#fff;border-radius:7px;padding:5px;font-size:.88rem}
+
+/* ── TOAST ── */
+.cw-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(100px);background:#1a2a4a;color:#fff;padding:12px 20px;border-radius:14px;font-size:.85rem;z-index:300;pointer-events:none;transition:transform .3s ease;max-width:86vw;text-align:center;border:1px solid #ffffff11}
+.cw-toast.show{transform:translateX(-50%) translateY(0)}
+.cw-toast.success{background:#0f3a1f;border-color:#4cde8044}
+.cw-toast.danger{background:#3a0f0f;border-color:#ff4d4d44}
+
+/* ── BACK SWIPE HINT ── */
+.swipe-hint{position:fixed;left:0;top:50%;transform:translateY(-50%);background:#ffffff08;border:1px solid var(--border);border-left:none;border-radius:0 10px 10px 0;padding:10px 6px;font-size:.72rem;color:var(--muted);writing-mode:vertical-rl;letter-spacing:.06em;pointer-events:none;opacity:.5}
+
+/* ── LOGIN NOTICE ── */
+#no-session{display:none;text-align:center;padding:60px 20px;color:var(--muted)}
+
+/* ── LOADING ── */
+#cw-loading{text-align:center;padding:60px 20px;font-size:1.2rem}
+</style>
+</head>
+<body>
+
+<div id="cw-loading">⚔️ 載入中...</div>
+<div id="no-session">
+  <div style="font-size:3rem;margin-bottom:16px">🔒</div>
+  <div style="font-size:1.1rem;font-weight:700;margin-bottom:8px">請先登入</div>
+  <div style="margin-bottom:20px">請回到投注頁面登入後再進入城池大戰</div>
+  <button onclick="goBack()" style="background:var(--accent);border:none;color:#fff;padding:12px 28px;border-radius:12px;font-size:.9rem;cursor:pointer">← 返回投注頁</button>
+</div>
+
+<div id="cw-main" style="display:none">
+  <!-- Header -->
+  <div class="cw-header">
+    <div class="cw-header-row">
+      <div class="cw-title">🏰 城池大戰</div>
+      <button class="back-btn" onclick="goBack()">← 返回投注</button>
+    </div>
+    <div class="my-info">
+      <span class="my-pts">💎 <span id="my-pts">0</span> 點</span>
+      <span class="my-hp">❤️ <span id="my-hp">500</span>/500 HP</span>
+      <span style="color:var(--muted)">🛡️ <span id="my-def">0</span> DEF</span>
+      <span id="my-shield-badge" style="display:none">🛡️有護盾</span>
+    </div>
+  </div>
+
+  <!-- 戰場 -->
+  <div class="battlefield" id="battlefield"></div>
+
+  <!-- 行動面板 -->
+  <div class="action-panel">
+    <div class="panel-title">
+      <span>⚔️ 行動面板</span>
+      <span class="pts-badge">💎 <span id="action-pts">0</span> 點</span>
+    </div>
+
+    <!-- 招募部隊 -->
+    <div style="font-size:.75rem;color:var(--muted);margin-bottom:8px">🪖 招募部隊（攻擊後消耗）</div>
+    <div class="unit-row">
+      <div class="unit-btn" onclick="openRecruit('soldier')">
+        <div class="u-emoji">🗡️</div>
+        <div class="u-name">小兵</div>
+        <div class="u-atk">ATK 25</div>
+        <div class="u-cost">10 點</div>
+      </div>
+      <div class="unit-btn" onclick="openRecruit('elite')">
+        <div class="u-emoji">⚔️</div>
+        <div class="u-name">強化小兵</div>
+        <div class="u-atk">ATK 80 穿甲10%</div>
+        <div class="u-cost">30 點</div>
+      </div>
+      <div class="unit-btn" onclick="openRecruit('catapult')">
+        <div class="u-emoji">💣</div>
+        <div class="u-name">投石車</div>
+        <div class="u-atk">ATK 200 穿甲50%</div>
+        <div class="u-cost">80 點</div>
+      </div>
+    </div>
+
+    <!-- 城防 -->
+    <div style="font-size:.75rem;color:var(--muted);margin-bottom:8px">🏰 城防升級</div>
+    <div class="def-row">
+      <div class="def-btn" onclick="upgradeWall()">
+        🧱 升級城牆
+        <br><small>20點/級 · +25DEF · 最多4級</small>
+      </div>
+      <div class="def-btn" onclick="buyShield()">
+        🛡️ 購買護盾
+        <br><small>50點 · 抵擋一次攻擊</small>
+      </div>
+    </div>
+  </div>
+
+  <!-- 戰役記錄 -->
+  <div class="battle-section">
+    <div style="font-weight:700;margin-bottom:12px">📜 近期戰役</div>
+    <div id="battle-log"></div>
+  </div>
+</div>
+
+<!-- 左側返回提示 -->
+<div class="swipe-hint">右滑返回</div>
+
+<!-- Toast -->
+<div class="cw-toast" id="cw-toast"></div>
+
+<!-- 招募 Modal -->
+<div class="modal-bg" id="recruit-modal">
+  <div class="modal">
+    <h3>🪖 招募 <span id="r-unit-name"></span></h3>
+    <div class="modal-pts">我的點數：<strong id="r-pts" style="color:var(--yellow)"></strong></div>
+    <div class="qty-row">
+      <div class="qty-btn" onclick="rAdj(-5)">－5</div>
+      <div class="qty-btn" onclick="rAdj(-1)">－</div>
+      <input type="number" class="qty-inp" id="r-count" min="1" value="1" oninput="rUpdate()">
+      <div class="qty-btn" onclick="rAdj(1)">＋</div>
+      <div class="qty-btn" onclick="rAdj(5)">＋5</div>
+    </div>
+    <div class="modal-cost">費用：<span id="r-cost">0</span> 點</div>
+    <div class="modal-btns">
+      <button class="btn-confirm" onclick="confirmRecruit()">確認招募</button>
+      <button class="btn-cancel" onclick="closeModal('recruit-modal')">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 攻擊 Modal -->
+<div class="modal-bg" id="attack-modal">
+  <div class="modal">
+    <h3>⚔️ 攻打 <span id="atk-target-name" style="color:var(--red)"></span></h3>
+    <div class="modal-pts" id="atk-hp-preview" style="margin-bottom:12px"></div>
+    <div class="atk-army-row">
+      <div class="atk-unit">
+        <div class="atk-unit-emoji">🗡️</div>
+        <div class="atk-unit-name">小兵</div>
+        <div class="atk-avail" id="atk-s-avail">0隊</div>
+        <input type="number" class="atk-inp" id="atk-s" min="0" value="0" oninput="updateAtkPreview()">
+      </div>
+      <div class="atk-unit">
+        <div class="atk-unit-emoji">⚔️</div>
+        <div class="atk-unit-name">強化小兵</div>
+        <div class="atk-avail" id="atk-e-avail">0隊</div>
+        <input type="number" class="atk-inp" id="atk-e" min="0" value="0" oninput="updateAtkPreview()">
+      </div>
+      <div class="atk-unit">
+        <div class="atk-unit-emoji">💣</div>
+        <div class="atk-unit-name">投石車</div>
+        <div class="atk-avail" id="atk-c-avail">0隊</div>
+        <input type="number" class="atk-inp" id="atk-c" min="0" value="0" oninput="updateAtkPreview()">
+      </div>
+    </div>
+    <div id="atk-dmg-preview" style="text-align:center;font-size:.82rem;color:var(--red);font-weight:700;margin-bottom:14px"></div>
+    <div class="modal-btns">
+      <button class="btn-confirm" style="background:linear-gradient(135deg,#6a1515,#8a2020)" onclick="launchAttack()">⚔️ 發動攻擊</button>
+      <button class="btn-cancel" onclick="closeModal('attack-modal')">取消</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Session（從 localStorage 取，與主頁共用）──
+let session = null;
+try { session = JSON.parse(localStorage.getItem('vb_session')); } catch{}
+
+const UNIT_INFO = {
+  soldier:  {name:'小兵',    emoji:'🗡️', atk:25,  cost:10,  pierce:0},
+  elite:    {name:'強化小兵',emoji:'⚔️', atk:80,  cost:30,  pierce:0.1},
+  catapult: {name:'投石車',  emoji:'💣', atk:200, cost:80,  pierce:0.5},
+};
+const MAX_HP = 500;
+let _castles = [];
+let _recruitKey = null;
+let _attackTargetId = null;
+let _attackTargetDef = 0;
+
+function goBack() {
+  window.location.href = '/virtual';
+}
+
+// 右滑返回
+(function(){
+  let sx=0;
+  document.addEventListener('touchstart',e=>{sx=e.touches[0].clientX},{passive:true});
+  document.addEventListener('touchend',e=>{
+    if(e.changedTouches[0].clientX-sx > 80) goBack();
+  },{passive:true});
+})();
+
+function toast(msg, type='') {
+  const t = document.getElementById('cw-toast');
+  t.textContent = msg;
+  t.className = 'cw-toast' + (type?' '+type:'');
+  void t.offsetWidth;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>t.classList.remove('show'), 3000);
+}
+
+// ── 初始化 ──
+window.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('cw-loading').style.display = 'none';
+  if (!session) {
+    document.getElementById('no-session').style.display = 'block';
+    return;
+  }
+  document.getElementById('cw-main').style.display = 'block';
+  // 確保城池已建立
+  await fetch('/api/castle/init', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({user_id: session.id || session.user_id, name: session.name})});
+  await loadState();
+  setInterval(loadState, 15000); // 每15秒刷新
+});
+
+async function loadState() {
+  const d = await fetch('/api/castle/state').then(r=>r.json()).catch(()=>null);
+  if (!d || !d.ok) return;
+  _castles = d.castles;
+  renderBattlefield(d.castles);
+  renderLog(d.log);
+}
+
+function getMe() {
+  return session ? (session.id || session.user_id) : null;
+}
+
+function renderBattlefield(castles) {
+  const myId = getMe();
+  const bf = document.getElementById('battlefield');
+  bf.innerHTML = castles.map(c => {
+    const isMine = c.user_id === myId;
+    const hpPct  = Math.max(0, Math.round(c.hp / MAX_HP * 100));
+    const hpColor = hpPct > 60 ? '#4cde80' : hpPct > 30 ? '#f5c842' : '#ff4d4d';
+    const fallen  = c.hp <= 100 && !isMine;
+    const critical = hpPct <= 30;
+    const armyParts = [
+      c.army.soldier  ? `🗡️×${c.army.soldier}` : null,
+      c.army.elite    ? `⚔️×${c.army.elite}` : null,
+      c.army.catapult ? `💣×${c.army.catapult}` : null,
+    ].filter(Boolean);
+    const armyStr = armyParts.length ? armyParts.join(' ') : '無部隊';
+    const wallStr = c.wall_level > 0 ? `🧱Lv${c.wall_level} DEF${c.defense}` : 'DEF 0';
+
+    // 城堡藝術表示（依HP狀態）
+    const castleArt = hpPct > 60 ? '🏰' : hpPct > 30 ? '🏚️' : '🔥';
+
+    // 更新我的狀態欄
+    if (isMine) {
+      document.getElementById('my-pts').textContent     = c.points;
+      document.getElementById('my-hp').textContent      = c.hp;
+      document.getElementById('my-def').textContent     = c.defense;
+      document.getElementById('action-pts').textContent = c.points;
+      document.getElementById('my-shield-badge').style.display = c.has_shield ? 'inline' : 'none';
+      window._myArmy = c.army;
+    }
+
+    return `<div class="castle-card ${isMine?'mine':'enemy'} ${fallen?'fallen':''} ${critical&&!isMine?'critical':''}">
+      ${c.has_shield ? '<div class="shield-badge" title="護盾啟動">🛡️</div>' : ''}
+      <div class="castle-art">${castleArt}</div>
+      <div class="castle-name">${c.name}</div>
+      ${isMine ? '<div class="mine-badge">◀ 我的城池</div>' : ''}
+      <div class="hp-text"><span>❤️ ${c.hp}/${MAX_HP}</span><span>${hpPct}%</span></div>
+      <div class="hp-bar-wrap">
+        <div class="hp-bar-fill" style="width:${hpPct}%;background:${hpColor}"></div>
+      </div>
+      <div class="castle-stats">
+        <div class="stat-chip"><div class="stat-lbl">城防</div><div class="stat-val" style="color:#a78bfa">${wallStr}</div></div>
+        <div class="stat-chip"><div class="stat-lbl">點數</div><div class="stat-val" style="color:var(--yellow)">💎${c.points}</div></div>
+        <div class="stat-chip" style="grid-column:1/-1"><div class="stat-lbl">部隊</div><div class="stat-val" style="font-size:.7rem">${armyStr}</div></div>
+      </div>
+      ${c.is_banned ? `<div class="banned-overlay">🚫 ${c.ban_msg}</div>` : ''}
+      ${!isMine && !c.is_banned ? `<button class="atk-btn" onclick="openAttack('${c.user_id}','${c.name}',${c.defense},${c.hp})">⚔️ 攻打</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderLog(log) {
+  const el = document.getElementById('battle-log');
+  if (!log || !log.length) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:24px">尚無戰役記錄</div>';
+    return;
+  }
+  el.innerHTML = log.map(l => {
+    const icon      = l.fallen ? '💥' : l.shielded ? '🛡️' : '⚔️';
+    const dmgColor  = l.fallen ? 'var(--red)' : l.shielded ? '#a78bfa' : '#fff';
+    const bonusTxt  = l.bonus_pts ? ` <span style="color:var(--green)">+${l.bonus_pts}點</span>` : '';
+    const fallenTxt = l.fallen ? ' <b style="color:var(--red)">💀城池陷落！</b>' : '';
+    const shldTxt   = l.shielded ? ' <span style="color:#a78bfa">護盾格擋！</span>' : '';
+    const sysTag    = l.attacker_id==='__system__' ? '<span style="color:#ff8888;font-size:.68rem">（破產懲罰）</span>' : '';
+    return `<div class="log-entry">
+      <div class="log-icon">${icon}</div>
+      <div class="log-body">
+        <span style="color:var(--yellow);font-weight:600">${l.attacker}</span>${sysTag}
+        攻打 <span style="color:var(--muted)">${l.defender}</span>
+        　<span style="color:${dmgColor};font-weight:700">-${l.damage}HP</span>${bonusTxt}${fallenTxt}${shldTxt}
+        <div class="log-time">${l.time}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── 招募 ──
+function openRecruit(key) {
+  _recruitKey = key;
+  const u = UNIT_INFO[key];
+  const myC = _castles.find(c => c.user_id === getMe());
+  document.getElementById('r-unit-name').textContent = u.emoji + ' ' + u.name;
+  document.getElementById('r-pts').textContent = (myC?.points || 0) + ' 點';
+  document.getElementById('r-count').value = 1;
+  rUpdate();
+  document.getElementById('recruit-modal').classList.add('open');
+}
+function rAdj(d) {
+  const el = document.getElementById('r-count');
+  el.value = Math.max(1, (parseInt(el.value)||1) + d);
+  rUpdate();
+}
+function rUpdate() {
+  const u = UNIT_INFO[_recruitKey];
+  const n = parseInt(document.getElementById('r-count').value)||1;
+  document.getElementById('r-cost').textContent = u.cost * n;
+}
+async function confirmRecruit() {
+  const n = parseInt(document.getElementById('r-count').value)||1;
+  const r = await fetch('/api/castle/recruit', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({user_id: getMe(), unit: _recruitKey, count: n})
+  }).then(x=>x.json());
+  closeModal('recruit-modal');
+  if (!r.ok) { toast('❌ ' + r.msg, 'danger'); return; }
+  toast(`✅ 招募 ${UNIT_INFO[_recruitKey].emoji} × ${n}`, 'success');
+  await loadState();
+}
+
+// ── 攻擊 ──
+function openAttack(targetId, targetName, targetDef, targetHp) {
+  _attackTargetId  = targetId;
+  _attackTargetDef = targetDef;
+  const army = window._myArmy || {};
+  document.getElementById('atk-target-name').textContent = targetName;
+  document.getElementById('atk-hp-preview').textContent = `目標 HP：${targetHp}／防禦：${targetDef}`;
+  document.getElementById('atk-s-avail').textContent = `擁有 ${army.soldier||0} 隊`;
+  document.getElementById('atk-e-avail').textContent = `擁有 ${army.elite||0} 隊`;
+  document.getElementById('atk-c-avail').textContent = `擁有 ${army.catapult||0} 隊`;
+  document.getElementById('atk-s').value = 0;
+  document.getElementById('atk-e').value = 0;
+  document.getElementById('atk-c').value = 0;
+  document.getElementById('atk-dmg-preview').textContent = '';
+  document.getElementById('attack-modal').classList.add('open');
+}
+function updateAtkPreview() {
+  const s = parseInt(document.getElementById('atk-s').value)||0;
+  const e = parseInt(document.getElementById('atk-e').value)||0;
+  const c = parseInt(document.getElementById('atk-c').value)||0;
+  const def = _attackTargetDef;
+  let dmg = 0;
+  dmg += Math.max(5, UNIT_INFO.soldier.atk  - def*(1-UNIT_INFO.soldier.pierce))  * s;
+  dmg += Math.max(5, UNIT_INFO.elite.atk    - def*(1-UNIT_INFO.elite.pierce))    * e;
+  dmg += Math.max(5, UNIT_INFO.catapult.atk - def*(1-UNIT_INFO.catapult.pierce)) * c;
+  document.getElementById('atk-dmg-preview').textContent =
+    (s+e+c > 0) ? `預計傷害：${Math.floor(dmg)} HP` : '';
+}
+async function launchAttack() {
+  const army = {
+    soldier:  parseInt(document.getElementById('atk-s').value)||0,
+    elite:    parseInt(document.getElementById('atk-e').value)||0,
+    catapult: parseInt(document.getElementById('atk-c').value)||0,
+  };
+  if (army.soldier+army.elite+army.catapult === 0) { toast('至少派出一隊部隊','danger'); return; }
+  const r = await fetch('/api/castle/attack', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({attacker_id: getMe(), defender_id: _attackTargetId, ...army})
+  }).then(x=>x.json());
+  closeModal('attack-modal');
+  if (!r.ok) { toast('❌ ' + r.msg, 'danger'); return; }
+  if (r.shielded) toast('🛡️ 護盾格擋！傷害無效！');
+  else if (r.fallen) toast(`💥 城池陷落！獲得 ${r.bonus_pts} 點！`, 'success');
+  else toast(`⚔️ 造成 ${r.damage} 傷害！`, 'success');
+  await loadState();
+}
+
+// ── 城防 ──
+async function upgradeWall() {
+  const r = await fetch('/api/castle/upgrade_wall', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({user_id: getMe()})
+  }).then(x=>x.json());
+  if (!r.ok) { toast('❌ ' + r.msg, 'danger'); return; }
+  toast(`🧱 城牆升至 Lv${r.wall_level}（DEF ${r.defense}）`, 'success');
+  await loadState();
+}
+async function buyShield() {
+  const r = await fetch('/api/castle/buy_shield', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({user_id: getMe()})
+  }).then(x=>x.json());
+  if (!r.ok) { toast('❌ ' + r.msg, 'danger'); return; }
+  toast('🛡️ 護盾啟動！下次攻擊將被格擋！', 'success');
+  await loadState();
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+</script>
+</body>
+</html>
