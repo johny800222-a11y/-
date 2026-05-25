@@ -105,6 +105,21 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .toast.s{background:#0f3a1f;border-color:#4cde8044}
 .toast.d{background:#3a0f0f;border-color:#ff4d4d44}
 
+/* ── DANMAKU 彈幕 ── */
+.danmaku-track{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:100;overflow:hidden}
+.danmaku-msg{position:absolute;white-space:nowrap;font-size:.82rem;font-weight:700;
+  padding:5px 12px;border-radius:20px;border:1px solid;
+  animation:danmaku-fly linear forwards}
+.danmaku-msg.atk{background:#3a0a0a99;border-color:#ff4d4d55;color:#fca5a5}
+.danmaku-msg.fallen{background:#5a3a0099;border-color:#f5c84255;color:#f5c842}
+.danmaku-msg.shield{background:#1a0a3a99;border-color:#a78bfa55;color:#c4b8ff}
+@keyframes danmaku-fly{
+  from{right:-350px;opacity:0}
+  5%{opacity:1}
+  90%{opacity:1}
+  to{right:110%;opacity:0}
+}
+
 /* ── GUARDS ── */
 #no-session{display:none;text-align:center;padding:60px 20px;color:var(--muted);flex:1}
 #cw-loading{text-align:center;padding:60px 20px;font-size:1.2rem;flex:1}
@@ -112,6 +127,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 </head>
 <body>
 
+<div class="danmaku-track" id="danmaku-track"></div>
 <div id="cw-loading">⚔️ 載入中...</div>
 <div id="no-session">
   <div style="font-size:3rem;margin-bottom:12px">🔒</div>
@@ -138,8 +154,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   <!-- TABS -->
   <div class="tabs">
     <div class="tab active" onclick="switchTab(0)">🏰 我的城池</div>
-    <div class="tab" onclick="switchTab(1)">⚔️ 攻打目標</div>
-    <div class="tab" onclick="switchTab(2)">🗺️ 全部城池</div>
+    <div class="tab" onclick="switchTab(1)">🗺️ 全部城池</div>
+    <div class="tab" onclick="switchTab(2)">⚔️ 攻打目標</div>
   </div>
 
   <!-- SLIDES -->
@@ -183,7 +199,17 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
         </div>
       </div>
 
-      <!-- ══ SLIDE 1: ATTACK ══ -->
+      <!-- ══ SLIDE 1: WORLD MAP ══ -->
+      <div class="slide">
+        <div class="world-slide">
+          <div class="world-canvas-wrap">
+            <canvas id="canvas-world"></canvas>
+          </div>
+          <div class="world-hint">點選敵方城池選為攻打目標 → 切換至攻打頁面</div>
+        </div>
+      </div>
+
+      <!-- ══ SLIDE 2: ATTACK ══ -->
       <div class="slide">
         <div class="atk-slide-inner">
           <div class="atk-scene">
@@ -241,16 +267,6 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
             <div class="dmg-preview" id="dmg-preview"></div>
             <button class="launch-btn" id="launch-btn" onclick="launchAttack()">⚔️ 發動攻擊</button>
           </div>
-        </div>
-      </div>
-
-      <!-- ══ SLIDE 2: WORLD MAP ══ -->
-      <div class="slide">
-        <div class="world-slide">
-          <div class="world-canvas-wrap">
-            <canvas id="canvas-world"></canvas>
-          </div>
-          <div class="world-hint">點選敵方城池可選為攻打目標</div>
         </div>
       </div>
 
@@ -313,6 +329,9 @@ let _lastResult = null;
 // cooldown remaining seconds (updated from API)
 let _cdSecs = {soldier:0, elite:0, catapult:0, shield:0};
 let _cdInterval = null;
+// 彈幕追蹤
+let _lastLogTime = null;
+let _danmakuLanes = [0,0,0,0,0]; // 各跑道的下一個可用時間
 
 // ══════════════════════════════════════════════
 //  NAVIGATION
@@ -323,8 +342,8 @@ function switchTab(idx) {
   _currentTab = idx;
   document.getElementById('slides-inner').style.transform = `translateX(${-idx*33.333}%)`;
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===idx));
-  if (idx===1) renderAtkCanvas();
-  if (idx===2) renderWorldCanvas();
+  if (idx===1) renderWorldCanvas();
+  if (idx===2) renderAtkCanvas();
 }
 
 // Swipe between slides
@@ -538,7 +557,34 @@ function drawCastle(ctx, cx, cy, scale, hpPct, label='', isMe=false, underAttack
   drawChineseRoof(ctx, cx-wallW/2+(-3*s), wallY-22*s, 24*s, 11*s, roofMain, roofHigh, roofEdge);
   drawChineseRoof(ctx, cx+wallW/2+3*s,    wallY-22*s, 24*s, 11*s, roofMain, roofHigh, roofEdge);
 
-  // ── 被攻打特效 ──
+  // ── 低血燃燒特效（HP ≤ 30%，持續）──
+  if(isCritical) {
+    const fireCount = Math.floor(4 + 5*Math.random());
+    ctx.save();
+    for(let i=0;i<fireCount;i++){
+      const phase = (t*0.003 + i*0.7) % (Math.PI*2);
+      const fx = cx + (-55+Math.random()*110)*s;
+      const fy = twrY + Math.random()*twrH*1.2;
+      const fr = (4+Math.random()*7)*s;
+      const flickr = 0.5+0.5*Math.sin(phase+i);
+      const fg=ctx.createRadialGradient(fx,fy,0,fx,fy,fr*1.5);
+      fg.addColorStop(0,`rgba(255,255,160,${flickr})`);
+      fg.addColorStop(0.35,`rgba(255,100,0,${flickr*0.8})`);
+      fg.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=fg; ctx.globalAlpha=flickr;
+      ctx.beginPath();ctx.arc(fx,fy-fr*0.3,fr,0,Math.PI*2);ctx.fill();
+    }
+    // 黑煙
+    for(let i=0;i<3;i++){
+      const sx=cx+(-30+i*30)*s, sy=twrY-(5+i*8)*s, sr=(8+i*4)*s;
+      const smokeA=0.08+0.06*Math.sin(t*0.002+i);
+      ctx.fillStyle=`rgba(0,0,0,${smokeA})`;
+      ctx.beginPath();ctx.arc(sx,sy,sr,0,Math.PI*2);ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // ── 被攻打額外特效（紅光脈衝）──
   if(underAttack) {
     const pulse = 0.18 + 0.14*Math.sin(t/200);
     ctx.save();
@@ -546,19 +592,6 @@ function drawCastle(ctx, cx, cy, scale, hpPct, label='', isMe=false, underAttack
     const ug = ctx.createRadialGradient(cx,twrY+twrH/2,0,cx,twrY+twrH/2,70*s);
     ug.addColorStop(0,'#ff4400'); ug.addColorStop(1,'transparent');
     ctx.fillStyle = ug; ctx.fillRect(cx-80*s,twrY-20*s,160*s,BY-twrY+20*s);
-    ctx.restore();
-    // 火焰粒子
-    const np = Math.floor(3+4*Math.random());
-    ctx.save();
-    for(let i=0;i<np;i++){
-      const fx=cx+(-40+Math.random()*80)*s;
-      const fy=twrY+Math.random()*twrH;
-      const fr=3*s+Math.random()*5*s;
-      const fg=ctx.createRadialGradient(fx,fy,0,fx,fy,fr);
-      fg.addColorStop(0,'#fff8b0');fg.addColorStop(0.4,'#ff8800');fg.addColorStop(1,'transparent');
-      ctx.fillStyle=fg; ctx.globalAlpha=0.6+Math.random()*0.4;
-      ctx.beginPath();ctx.arc(fx,fy,fr,0,Math.PI*2);ctx.fill();
-    }
     ctx.restore();
   }
 
@@ -712,7 +745,7 @@ function renderAtkCanvas() {
     if(now-_atkPhaseTimer>2200) {
       _atkPhase='impact'; _impactX=themCX; _impactY=castleY-60;
     }
-    requestAnimationFrame(()=>{ if(_currentTab===1) renderAtkCanvas(); });
+    requestAnimationFrame(()=>{ if(_currentTab===2) renderAtkCanvas(); });
   }
 
   // Impact effect
@@ -756,7 +789,7 @@ function renderAtkCanvas() {
       ctx.restore();
     }
     if(alpha<=0){ _atkPhase='done'; _lastResult=null; }
-    else requestAnimationFrame(()=>{ if(_currentTab===1) renderAtkCanvas(); });
+    else requestAnimationFrame(()=>{ if(_currentTab===2) renderAtkCanvas(); });
   }
 
   // "VS" 標誌
@@ -865,7 +898,7 @@ document.getElementById('canvas-world').addEventListener('click', e=>{
       document.getElementById('dmg-preview').textContent='';
       renderWorldCanvas();
       toast(`⚔️ 已選定攻打目標：${c.name}`);
-      switchTab(1);
+      switchTab(2);
     }
   });
 });
@@ -879,10 +912,11 @@ async function loadState() {
   const d = await fetch('/api/castle/state').then(r=>r.json()).catch(()=>null);
   if(!d||!d.ok) return;
   _castles = d.castles;
+  checkNewBattles(d.log);
   updateHeader();
   renderMineCanvas();
-  if(_currentTab===1) renderAtkCanvas();
-  if(_currentTab===2) renderWorldCanvas();
+  if(_currentTab===2) renderAtkCanvas();
+  if(_currentTab===1) renderWorldCanvas();
 
   // Attack banner
   const me=_castles.find(c=>c.user_id===getMe());
@@ -914,6 +948,48 @@ function updateHeader() {
   }
   _cdSecs.shield = me.shield_cd || 0;
   startCdCountdown();
+}
+
+// ── 彈幕系統 ──
+function spawnDanmaku(text, type='atk') {
+  const track = document.getElementById('danmaku-track');
+  if(!track) return;
+  // 找最空的跑道
+  const now = Date.now();
+  let lane = 0;
+  for(let i=1;i<_danmakuLanes.length;i++){
+    if(_danmakuLanes[i]<_danmakuLanes[lane]) lane=i;
+  }
+  const topPct = 12 + lane * 14; // 12%~68%
+  const dur = 5 + Math.random()*3; // 5~8秒
+  _danmakuLanes[lane] = now + dur*1000;
+
+  const el = document.createElement('div');
+  el.className = `danmaku-msg ${type}`;
+  el.textContent = text;
+  el.style.top = topPct + '%';
+  el.style.animationDuration = dur + 's';
+  track.appendChild(el);
+  el.addEventListener('animationend', ()=>el.remove());
+}
+
+function checkNewBattles(log) {
+  if(!log||!log.length) return;
+  const newest = log[0].time;
+  if(!_lastLogTime) { _lastLogTime=newest; return; } // 初次不播
+  if(newest===_lastLogTime) return;
+  // 找到新的記錄（比上次的 time 更新）
+  for(const entry of log){
+    if(entry.time===_lastLogTime) break;
+    if(entry.attacker_id==='__system__') continue;
+    const type = entry.fallen?'fallen':entry.shielded?'shield':'atk';
+    let txt = `⚔️ ${entry.attacker} 攻打 ${entry.defender}`;
+    if(entry.shielded) txt = `🛡️ ${entry.defender} 護盾格擋了 ${entry.attacker} 的攻擊！`;
+    if(entry.fallen)   txt = `💥 ${entry.attacker} 攻下了 ${entry.defender} 的城池！`;
+    else if(!entry.shielded) txt += ` （-${entry.damage} HP）`;
+    spawnDanmaku(txt, type);
+  }
+  _lastLogTime = newest;
 }
 
 function fmtCd(sec) {
@@ -1101,7 +1177,7 @@ window.addEventListener('DOMContentLoaded', async()=>{
 });
 
 // Resize
-window.addEventListener('resize',()=>{renderMineCanvas();if(_currentTab===2)renderWorldCanvas();});
+window.addEventListener('resize',()=>{renderMineCanvas();if(_currentTab===1)renderWorldCanvas();});
 </script>
 </body>
 </html>
