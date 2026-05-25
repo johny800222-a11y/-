@@ -687,6 +687,16 @@ def api_castle_init():
     result = castle_war.ensure_castle(d.get("user_id",""), d.get("name",""))
     return jsonify({"ok": True, "castle": result})
 
+@app.route("/api/castle/admin_reset", methods=["POST"])
+def api_castle_admin_reset():
+    d = request.get_json() or {}
+    if d.get("secret") != "syuan_admin_2026":
+        return jsonify({"ok": False, "msg": "unauthorized"}), 403
+    hp = int(d.get("hp", 500))
+    bonus = int(d.get("bonus_pts", 0))
+    result = castle_war.admin_reset_all(hp=hp, bonus_pts=bonus)
+    return jsonify(result)
+
 
 # ── Chat ──────────────────────────────────────────────────────────────────────
 

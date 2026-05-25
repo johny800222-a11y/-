@@ -409,3 +409,15 @@ def get_castle(user_id: str) -> dict | None:
     defense = c.get("wall_level", 0) * WALL_DEF
     cd = _cd_info(c)
     return {**c, "defense": defense, "is_banned": banned, "ban_msg": ban_msg, **cd}
+
+def admin_reset_all(hp: int = 500, bonus_pts: int = 0) -> dict:
+    """管理員：重設所有城池 HP，並發放獎勵點數"""
+    data = _load()
+    summary = []
+    for uid, c in data["castles"].items():
+        c["hp"] = hp
+        if bonus_pts > 0:
+            c["points"] = c.get("points", 0) + bonus_pts
+        summary.append({"name": c["name"], "hp": c["hp"], "points": c.get("points", 0)})
+    _save(data)
+    return {"ok": True, "updated": len(summary), "castles": summary}

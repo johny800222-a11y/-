@@ -79,10 +79,29 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .launch-btn:disabled{opacity:.4;cursor:not-allowed}
 
 /* ── WORLD SLIDE ── */
-.world-slide{height:100%;display:flex;flex-direction:column}
-.world-canvas-wrap{flex:1;position:relative}
-.world-canvas-wrap canvas{width:100%;height:100%;display:block}
-.world-hint{text-align:center;padding:6px;font-size:.7rem;color:var(--muted);flex-shrink:0}
+.world-slide{height:100%;overflow-y:auto;padding:10px 12px;display:grid;grid-template-columns:1fr 1fr;gap:9px;align-content:start}
+.wc-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px 10px 8px;cursor:pointer;transition:border-color .2s;position:relative;overflow:hidden}
+.wc-card:active{transform:scale(.98)}
+.wc-card.is-me{border-color:#6c63ff55}
+.wc-card.is-target{border-color:#ff4d4d;box-shadow:0 0 12px #ff4d4d44}
+.wc-card.low-hp{animation:card-burn .8s ease-in-out infinite alternate}
+@keyframes card-burn{from{border-color:#ff4d4d88;box-shadow:0 0 6px #ff4d4d33}to{border-color:#ff4d4d;box-shadow:0 0 16px #ff4d4d88}}
+.wc-icon{font-size:2rem;text-align:center;margin-bottom:4px;line-height:1}
+.wc-name{font-size:.78rem;font-weight:700;text-align:center;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wc-me-tag{font-size:.55rem;color:#a78bfa;text-align:center;margin-bottom:3px}
+.wc-hp-row{display:flex;align-items:center;gap:5px;margin-bottom:4px;font-size:.64rem}
+.wc-hp-bar-bg{flex:1;height:6px;background:#ffffff15;border-radius:3px;overflow:hidden}
+.wc-hp-bar-fill{height:100%;border-radius:3px;transition:width .3s}
+.wc-hp-pct{color:var(--muted);min-width:26px;text-align:right;font-size:.62rem}
+.wc-stats{display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:.6rem;color:var(--muted);margin-bottom:5px}
+.wc-stat-item{background:var(--card2);border-radius:6px;padding:3px 5px;text-align:center}
+.wc-stat-label{font-size:.52rem;color:var(--muted);display:block}
+.wc-stat-val{font-weight:700;font-size:.68rem;color:#fff}
+.wc-army{background:var(--card2);border-radius:6px;padding:3px 6px;text-align:center;font-size:.62rem;margin-bottom:6px}
+.wc-army-label{color:var(--muted);font-size:.52rem;display:block;margin-bottom:1px}
+.wc-atk-btn{width:100%;padding:6px;background:linear-gradient(135deg,#6a1515,#9a2020);border:1px solid #ff4d4d55;color:#fff;border-radius:8px;font-size:.7rem;font-weight:700;cursor:pointer}
+.wc-banned{position:absolute;inset:0;background:#00000088;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:.7rem;color:#f87171;font-weight:700;text-align:center;padding:8px;backdrop-filter:blur(2px)}
+.world-hint{text-align:center;grid-column:1/-1;font-size:.65rem;color:var(--muted);padding:4px 0}
 
 /* ── MODALS ── */
 .modal-bg{display:none;position:fixed;inset:0;background:#000c;z-index:200;align-items:center;justify-content:center;padding:20px}
@@ -201,11 +220,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 
       <!-- ══ SLIDE 1: WORLD MAP ══ -->
       <div class="slide">
-        <div class="world-slide">
-          <div class="world-canvas-wrap">
-            <canvas id="canvas-world"></canvas>
-          </div>
-          <div class="world-hint">點選敵方城池選為攻打目標 → 切換至攻打頁面</div>
+        <div class="world-slide" id="world-grid">
+          <div class="world-hint">點選攻打按鈕選擇目標</div>
         </div>
       </div>
 
@@ -806,102 +822,70 @@ function renderAtkCanvas() {
 //  RENDER: WORLD MAP (4 castles)
 // ══════════════════════════════════════════════
 function renderWorldCanvas() {
-  const canv = document.getElementById('canvas-world');
-  const wrap = canv.parentElement;
-  canv.width = wrap.clientWidth; canv.height = wrap.clientHeight;
-  const ctx = canv.getContext('2d');
+  const grid = document.getElementById('world-grid');
+  const myId = getMe();
+  // keep hint
+  grid.innerHTML = '<div class="world-hint">點選攻打按鈕選擇目標</div>';
 
-  ctx.clearRect(0,0,canv.width,canv.height);
-  // Map background
-  const bg=ctx.createLinearGradient(0,0,canv.width,canv.height);
-  bg.addColorStop(0,'#0a1a0a');bg.addColorStop(1,'#0a0a18');
-  ctx.fillStyle=bg;ctx.fillRect(0,0,canv.width,canv.height);
+  if(!_castles.length){ grid.innerHTML += '<div style="grid-column:1/-1;text-align:center;color:var(--muted);font-size:.8rem;padding:20px">載入中...</div>'; return; }
 
-  // Grid lines (terrain)
-  ctx.strokeStyle='#ffffff06';ctx.lineWidth=1;
-  for(let x=0;x<canv.width;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,canv.height);ctx.stroke();}
-  for(let y=0;y<canv.height;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(canv.width,y);ctx.stroke();}
+  _castles.forEach(c => {
+    const isMe = c.user_id === myId;
+    const isTarget = c.user_id === _atkTargetId;
+    const hpPct = c.hp / MAX_HP;
+    const lowHp = hpPct <= 0.3;
+    const army = c.army || {};
+    const armyTxt = [army.soldier?`🗡️×${army.soldier}`:'', army.elite?`⚔️×${army.elite}`:'', army.catapult?`💣×${army.catapult}`:''].filter(Boolean).join(' ') || '無部隊';
+    const hpColor = hpPct > 0.6 ? '#4cde80' : hpPct > 0.3 ? '#f5c842' : '#ff4d4d';
+    const castleEmoji = lowHp ? '🔥🏰' : (isMe ? '🏰' : '🏯');
+    const defTxt = c.wall_level ? `🧱Lv${c.wall_level} DEF${(c.defense||0)}` : `DEF ${c.defense||0}`;
 
-  // Center cross road
-  ctx.strokeStyle='#ffffff0a';ctx.lineWidth=8;
-  ctx.beginPath();ctx.moveTo(canv.width/2,0);ctx.lineTo(canv.width/2,canv.height);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(0,canv.height/2);ctx.lineTo(canv.width,canv.height/2);ctx.stroke();
-
-  if(!_castles.length) return;
-  const W=canv.width,H=canv.height;
-  const positions=[
-    [W*0.28,H*0.28],[W*0.72,H*0.28],
-    [W*0.28,H*0.72],[W*0.72,H*0.72],
-  ];
-
-  _worldCastlePositions = positions.slice(0,_castles.length);
-
-  _castles.forEach((c,i)=>{
-    if(!positions[i]) return;
-    const [cx,cy] = positions[i];
-    const isMe = c.user_id===getMe();
-    const isTarget = c.user_id===_atkTargetId;
-    const hpPct = c.hp/MAX_HP;
-
-    // Territory circle
-    const terr=ctx.createRadialGradient(cx,cy,0,cx,cy,70);
-    if(isMe)    {terr.addColorStop(0,'#6c63ff18');terr.addColorStop(1,'transparent');}
-    else if(isTarget){terr.addColorStop(0,'#ff444422');terr.addColorStop(1,'transparent');}
-    else        {terr.addColorStop(0,'#ffffff08');terr.addColorStop(1,'transparent');}
-    ctx.fillStyle=terr;ctx.beginPath();ctx.arc(cx,cy,70,0,Math.PI*2);ctx.fill();
-
-    // Target ring
-    if(isTarget){
-      ctx.save();
-      ctx.strokeStyle='#ff4444';ctx.lineWidth=2;ctx.setLineDash([4,4]);
-      ctx.beginPath();ctx.arc(cx,cy,56,0,Math.PI*2);ctx.stroke();
-      ctx.setLineDash([]);ctx.restore();
-    }
-    if(isMe){
-      ctx.strokeStyle='#6c63ff55';ctx.lineWidth=1.5;
-      ctx.beginPath();ctx.arc(cx,cy,56,0,Math.PI*2);ctx.stroke();
-    }
-
-    drawCastle(ctx, cx, cy, 0.48, hpPct, c.name, isMe, false);
+    const div = document.createElement('div');
+    div.className = `wc-card${isMe?' is-me':''}${isTarget?' is-target':''}${lowHp?' low-hp':''}`;
+    div.innerHTML = `
+      <div class="wc-icon">${castleEmoji}</div>
+      <div class="wc-name">${c.name}</div>
+      ${isMe ? '<div class="wc-me-tag">◀ 我的城池</div>' : ''}
+      <div class="wc-hp-row">
+        <span style="color:#ff8888;font-size:.62rem">❤️ ${c.hp}/500</span>
+        <div class="wc-hp-bar-bg"><div class="wc-hp-bar-fill" style="width:${Math.max(0,hpPct*100)}%;background:${hpColor}"></div></div>
+        <span class="wc-hp-pct">${Math.round(hpPct*100)}%</span>
+      </div>
+      <div class="wc-stats">
+        <div class="wc-stat-item"><span class="wc-stat-label">城防</span><span class="wc-stat-val">${defTxt}</span></div>
+        <div class="wc-stat-item"><span class="wc-stat-label">點數</span><span class="wc-stat-val">💎${c.points||0}</span></div>
+      </div>
+      <div class="wc-army"><span class="wc-army-label">部隊</span>${armyTxt}</div>
+      ${!isMe ? `<button class="wc-atk-btn" onclick="selectAtkTarget('${c.user_id}')">⚔️ 攻打</button>` : ''}
+      ${c.is_banned ? `<div class="wc-banned">🚫 ${c.ban_msg||'禁止行動'}</div>` : ''}
+    `;
+    grid.appendChild(div);
   });
 }
-let _worldCastlePositions = [];
 
-// World map click → select target
-document.getElementById('canvas-world').addEventListener('click', e=>{
-  const canv=e.currentTarget;
-  const rect=canv.getBoundingClientRect();
-  const mx=(e.clientX-rect.left)*(canv.width/rect.width);
-  const my=(e.clientY-rect.top)*(canv.height/rect.height);
-  const myId=getMe();
-
-  _castles.forEach((c,i)=>{
-    if(c.user_id===myId||!_worldCastlePositions[i]) return;
-    const [px,py]=_worldCastlePositions[i];
-    const d=Math.hypot(mx-px,my-py);
-    if(d<56){
-      if(c.is_banned){toast('🚫 '+c.ban_msg,'d');return;}
-      _atkTargetId=c.user_id; _atkTargetDef=c.defense||0;
-      _atkTargetHp=c.hp; _atkTargetArmy=c.army||{};
-      _atkTargetWallLvl=c.wall_level||0;
-      document.getElementById('atk-tname').textContent=c.name;
-      const mine=(_castles.find(x=>x.user_id===myId)||{}).army||{};
-      // Update sliders max
-      for(const [key,id] of [['soldier','s'],['elite','e'],['catapult','c']]){
-        const avail=mine[key]||0;
-        document.getElementById(`d-${id}-avail`).textContent=`${avail}隊`;
-        const sl=document.getElementById(`d-${id}`);
-        sl.max=avail; sl.value=0;
-        document.getElementById(`d-${id}-num`).textContent='0';
-        document.getElementById(`d-${id}-dmg`).textContent='';
-      }
-      document.getElementById('dmg-preview').textContent='';
-      renderWorldCanvas();
-      toast(`⚔️ 已選定攻打目標：${c.name}`);
-      switchTab(2);
-    }
-  });
-});
+function selectAtkTarget(uid) {
+  const myId = getMe();
+  const c = _castles.find(x => x.user_id === uid);
+  if(!c) return;
+  if(c.is_banned){ toast('🚫 '+c.ban_msg,'d'); return; }
+  _atkTargetId = c.user_id; _atkTargetDef = c.defense||0;
+  _atkTargetHp = c.hp; _atkTargetArmy = c.army||{};
+  _atkTargetWallLvl = c.wall_level||0;
+  document.getElementById('atk-tname').textContent = c.name;
+  const mine = (_castles.find(x=>x.user_id===myId)||{}).army||{};
+  for(const [key,id] of [['soldier','s'],['elite','e'],['catapult','c']]){
+    const avail = mine[key]||0;
+    document.getElementById(`d-${id}-avail`).textContent = `${avail}隊`;
+    const sl = document.getElementById(`d-${id}`);
+    sl.max = avail; sl.value = 0;
+    document.getElementById(`d-${id}-num`).textContent = '0';
+    document.getElementById(`d-${id}-dmg`).textContent = '';
+  }
+  document.getElementById('dmg-preview').textContent = '';
+  renderWorldCanvas(); // refresh highlight
+  toast(`⚔️ 已選定攻打目標：${c.name}`);
+  switchTab(2);
+}
 
 // ══════════════════════════════════════════════
 //  API & STATE
