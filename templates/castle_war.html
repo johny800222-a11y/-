@@ -5,279 +5,205 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>🏰 城池大戰</title>
 <style>
-:root{
-  --bg:#0a0a18;--card:#12122a;--card2:#1a1a36;
-  --accent:#6c63ff;--yellow:#f5c842;--red:#ff4d4d;
-  --green:#4cde80;--muted:#777;--border:#252540;
-  --text:#f0f0ff;
-}
-*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;overflow-x:hidden}
+:root{--bg:#0a0a18;--card:#12122a;--card2:#1a1a36;--accent:#6c63ff;--yellow:#f5c842;--red:#ff4d4d;--green:#4cde80;--muted:#666;--border:#202040;--text:#f0f0ff}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;height:100vh;overflow:hidden;display:flex;flex-direction:column}
 
 /* ── HEADER ── */
-.cw-header{background:linear-gradient(180deg,#08081a,var(--bg));padding:12px 14px 8px;position:sticky;top:0;z-index:50;border-bottom:1px solid #ffffff0a}
-.cw-header-row{display:flex;justify-content:space-between;align-items:center}
-.cw-title{font-size:1.1rem;font-weight:800;letter-spacing:.04em;background:linear-gradient(90deg,#a78bfa,#f5c842);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.back-btn{background:var(--card2);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:5px 10px;font-size:.78rem;cursor:pointer}
-.my-bar{display:flex;gap:10px;margin-top:6px;font-size:.76rem;flex-wrap:wrap}
-.my-pts{color:var(--yellow);font-weight:700}
-.my-hp{color:var(--green)}
+.hdr{background:linear-gradient(180deg,#080814,var(--bg));padding:10px 14px 6px;border-bottom:1px solid #ffffff08;flex-shrink:0}
+.hdr-row{display:flex;justify-content:space-between;align-items:center}
+.hdr-title{font-size:1.05rem;font-weight:800;background:linear-gradient(90deg,#a78bfa,#f5c842);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.back-btn{background:var(--card2);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:5px 10px;font-size:.75rem;cursor:pointer}
+.hdr-stats{display:flex;gap:12px;margin-top:5px;font-size:.74rem;flex-wrap:wrap}
+.stat-hp{color:var(--green)}.stat-pts{color:var(--yellow)}.stat-def{color:#a78bfa}
 
-/* ══════════════ BATTLEFIELD MAP ══════════════ */
-.map-wrap{position:relative;width:100%;background:radial-gradient(ellipse at 50% 40%,#1a1040 0%,#0a0a18 70%);padding:12px;overflow:hidden}
-/* 地圖背景紋理 */
-.map-wrap::before{content:'';position:absolute;inset:0;
-  background:repeating-linear-gradient(0deg,transparent,transparent 40px,#ffffff03 40px,#ffffff03 41px),
-             repeating-linear-gradient(90deg,transparent,transparent 40px,#ffffff03 40px,#ffffff03 41px);
-  pointer-events:none}
-/* 中央對決區 */
-.map-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-  width:60px;height:60px;background:radial-gradient(circle,#ffffff06,transparent 70%);
-  border-radius:50%;border:1px dashed #ffffff10;pointer-events:none;z-index:0}
+/* ── TABS ── */
+.tabs{display:flex;background:var(--card);border-bottom:1px solid var(--border);flex-shrink:0}
+.tab{flex:1;padding:10px 0;text-align:center;font-size:.78rem;font-weight:600;color:var(--muted);cursor:pointer;transition:all .2s;border-bottom:2px solid transparent;letter-spacing:.03em}
+.tab.active{color:#fff;border-bottom-color:var(--accent)}
 
-.castles-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:10px;position:relative;z-index:1}
+/* ── SLIDES ── */
+.slides-track{flex:1;overflow:hidden;position:relative}
+.slides-inner{display:flex;width:300%;height:100%;transition:transform .35s cubic-bezier(.4,0,.2,1)}
+.slide{width:33.333%;height:100%;position:relative;overflow:hidden}
 
-/* ── CASTLE CARD ── */
-.castle-card{background:var(--card);border:2px solid var(--border);border-radius:18px;padding:12px 10px 10px;
-  position:relative;transition:all .35s;overflow:hidden;cursor:default;min-height:170px;
-  display:flex;flex-direction:column;align-items:center}
-.castle-card::after{content:'';position:absolute;inset:0;
-  background:radial-gradient(ellipse at 50% 0%,#ffffff08,transparent 60%);pointer-events:none}
+/* ── MY CASTLE SLIDE ── */
+.castle-canvas-wrap{width:100%;height:60%;position:relative}
+.castle-canvas-wrap canvas{width:100%;height:100%;display:block}
+.attack-banner{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:#7f1d1d;border:1px solid #ff4d4d88;border-radius:20px;padding:5px 16px;font-size:.76rem;font-weight:700;color:#fca5a5;display:none;animation:banner-pulse 1s infinite;white-space:nowrap}
+@keyframes banner-pulse{0%,100%{opacity:1}50%{opacity:.6}}
 
-.castle-card.mine{border-color:#6c63ff66;background:linear-gradient(160deg,#131330,#181540)}
-.castle-card.mine::after{background:radial-gradient(ellipse at 50% 0%,#6c63ff18,transparent 70%)}
-.castle-card.enemy{border-color:#ff4d4d18}
-.castle-card.fallen{opacity:.7;border-color:#ff4d4d88}
-.castle-card.critical{border-color:#f5c84266;animation:warn 1.6s infinite}
-.castle-card.attacking-target{border-color:#ff4d4dcc;box-shadow:0 0 18px #ff4d4d55;animation:target-glow 1s infinite}
-@keyframes warn{0%,100%{border-color:#f5c84266}50%{border-color:#ff4d4daa}}
-@keyframes target-glow{0%,100%{box-shadow:0 0 10px #ff4d4d44}50%{box-shadow:0 0 28px #ff4d4d99}}
+.mine-info{padding:10px 14px 0;display:flex;gap:8px;flex-wrap:wrap}
+.info-chip{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:7px 10px;font-size:.72rem;flex:1;min-width:80px;text-align:center}
+.chip-val{font-weight:700;font-size:.9rem;display:block;margin-top:2px}
 
-.castle-emoji{font-size:3rem;line-height:1;text-align:center;filter:drop-shadow(0 0 12px currentColor);
-  transition:transform .3s;margin-bottom:4px}
-.castle-card:hover .castle-emoji{transform:scale(1.08)}
-.castle-name{font-weight:800;font-size:.82rem;text-align:center;letter-spacing:.02em}
-.mine-tag{font-size:.6rem;color:var(--accent);font-weight:700;letter-spacing:.05em;margin-top:1px;text-align:center}
+.mine-actions{padding:10px 14px;display:flex;gap:7px;flex-wrap:wrap}
+.act-btn{flex:1;min-width:70px;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:8px 5px;font-size:.72rem;cursor:pointer;text-align:center;transition:border-color .2s}
+.act-btn:hover{border-color:var(--accent)}
+.act-btn .ab-icon{font-size:1.2rem;display:block;margin-bottom:3px}
 
-.hp-bar-wrap{width:100%;height:8px;background:#ffffff0f;border-radius:4px;overflow:hidden;margin:7px 0 3px}
-.hp-fill{height:100%;border-radius:4px;transition:width .7s ease}
-.hp-fill::after{content:'';position:absolute;top:0;left:0;right:0;height:45%;background:rgba(255,255,255,.22);border-radius:4px}
-.hp-fill{position:relative}
-.hp-label{font-size:.65rem;color:var(--muted);text-align:center;margin-bottom:5px}
+/* ── ATTACK SLIDE ── */
+.atk-slide-inner{height:100%;display:flex;flex-direction:column;padding:10px 12px;gap:8px}
+.atk-scene{flex:1;position:relative;background:linear-gradient(135deg,#0d0520 0%,#1a0505 100%);border-radius:16px;border:1px solid var(--border);overflow:hidden}
+.atk-scene canvas{width:100%;height:100%;display:block}
+.no-target{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;color:var(--muted);font-size:.85rem}
 
-/* ── TROOPS DISPLAY on card ── */
-.troops-display{display:flex;flex-wrap:wrap;justify-content:center;gap:3px;margin-top:4px;min-height:22px}
-.troop-chip{background:#ffffff0a;border:1px solid #ffffff10;border-radius:6px;padding:2px 5px;
-  font-size:.65rem;display:flex;align-items:center;gap:2px;white-space:nowrap}
-.troop-emoji{font-size:.8rem}
+.atk-config{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:12px}
+.atk-config-title{font-size:.78rem;font-weight:700;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.unit-deploy{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px}
+.deploy-cell{background:var(--card2);border-radius:10px;padding:7px 4px;text-align:center}
+.dc-emoji{font-size:1.3rem}
+.dc-name{font-size:.6rem;color:var(--muted)}
+.dc-avail{font-size:.6rem;color:var(--accent);margin:2px 0}
+.dc-inp{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:#fff;text-align:center;font-size:.85rem;padding:4px}
 
-.wall-chip{font-size:.62rem;color:#a78bfa;margin-top:3px}
-.shield-ico{position:absolute;top:7px;right:7px;font-size:1rem}
-.pts-chip{position:absolute;top:7px;left:7px;font-size:.62rem;color:var(--yellow);font-weight:700;background:#00000040;border-radius:5px;padding:1px 4px}
+.dmg-preview{text-align:center;font-size:.8rem;color:var(--red);font-weight:700;min-height:18px;margin-bottom:8px}
+.launch-btn{width:100%;padding:10px;background:linear-gradient(135deg,#6a1515,#9a2020);border:1px solid #ff4d4d55;color:#fff;border-radius:10px;font-size:.85rem;font-weight:700;cursor:pointer;transition:all .2s}
+.launch-btn:hover{background:linear-gradient(135deg,#8a2020,#c02828)}
+.launch-btn:disabled{opacity:.4;cursor:not-allowed}
 
-.atk-btn{width:calc(100% - 0px);margin-top:auto;padding:7px 0;
-  background:linear-gradient(135deg,#4a0a0a,#6a1515);border:1px solid #ff4d4d44;
-  color:#ff8888;border-radius:10px;font-size:.76rem;font-weight:700;cursor:pointer;
-  transition:all .2s;letter-spacing:.02em}
-.atk-btn:hover{background:linear-gradient(135deg,#6a1515,#8a2020);border-color:#ff4d4d88}
-.atk-btn:disabled{opacity:.35;cursor:not-allowed}
-
-.banned-overlay{position:absolute;inset:0;background:#00000099;border-radius:16px;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  font-size:.72rem;color:#ff8888;text-align:center;padding:10px;backdrop-filter:blur(3px)}
-
-/* ══════════════ BATTLE SCENE ══════════════ */
-/* shown when a battle is in progress / just happened */
-.battle-scene{margin:0 12px 8px;border-radius:18px;overflow:hidden;position:relative;
-  background:linear-gradient(135deg,#0f0824,#1a0a0a);border:1px solid var(--border);
-  min-height:100px;display:flex;align-items:center;justify-content:space-between;padding:14px 10px;
-  display:none}
-.battle-scene.visible{display:flex}
-.bs-castle{display:flex;flex-direction:column;align-items:center;gap:4px;width:80px}
-.bs-emoji{font-size:2.4rem;filter:drop-shadow(0 0 12px currentColor)}
-.bs-name{font-size:.68rem;font-weight:700;text-align:center;max-width:76px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.bs-hp{font-size:.62rem;color:var(--muted)}
-
-.bs-mid{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
-.troops-march{display:flex;gap:4px;justify-content:center;flex-wrap:wrap}
-.troop-marching{font-size:1.2rem;animation:march 0.6s ease-in-out infinite alternate}
-@keyframes march{0%{transform:translateX(-3px) scaleX(1)}100%{transform:translateX(3px) scaleX(-1)}}
-.bs-dmg{font-size:1.1rem;font-weight:800;color:var(--red);animation:dmg-pop .5s ease-out forwards}
-@keyframes dmg-pop{0%{opacity:0;transform:scale(.5) translateY(10px)}60%{opacity:1;transform:scale(1.15) translateY(-4px)}100%{opacity:1;transform:scale(1) translateY(0)}}
-.bs-label{font-size:.68rem;color:var(--muted);text-align:center}
-.bs-result{font-size:.78rem;font-weight:700;text-align:center;padding:3px 10px;border-radius:8px}
-.bs-result.success{color:var(--green);background:#0d2a1a}
-.bs-result.shielded{color:#a78bfa;background:#1a0d3a}
-.bs-result.fallen{color:var(--red);background:#2a0d0d}
-
-.vs-arrow{font-size:1.4rem;color:#ff4d4d;animation:vs-pulse .9s ease-in-out infinite}
-@keyframes vs-pulse{0%,100%{transform:scaleX(1);opacity:1}50%{transform:scaleX(1.3);opacity:.7}}
-
-/* ══════════════ ACTION PANEL ══════════════ */
-.action-panel{margin:0 12px 10px;background:var(--card);border:1px solid var(--border);border-radius:18px;padding:14px}
-.panel-title{font-weight:700;font-size:.9rem;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
-.pts-badge{background:linear-gradient(135deg,#2a2000,#3a3000);border:1px solid var(--yellow)33;border-radius:20px;padding:4px 10px;font-size:.76rem;color:var(--yellow);font-weight:700}
-
-.unit-row{display:flex;gap:7px;margin-bottom:12px}
-.unit-btn{flex:1;background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:9px 4px;text-align:center;cursor:pointer;transition:all .2s}
-.unit-btn:hover{border-color:var(--accent);background:#1e1e3a}
-.unit-btn:active{transform:scale(.96)}
-.u-emoji{font-size:1.7rem}
-.u-name{font-size:.68rem;font-weight:700;margin:3px 0 1px}
-.u-atk{font-size:.6rem;color:var(--muted)}
-.u-cost{font-size:.66rem;color:var(--yellow);margin-top:2px}
-
-.def-row{display:flex;gap:7px}
-.def-btn{flex:1;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:8px 8px;font-size:.74rem;cursor:pointer;color:var(--text);transition:border-color .2s;text-align:center}
-.def-btn:hover{border-color:var(--accent)}
-.def-btn small{color:var(--muted);font-size:.64rem;display:block;margin-top:2px}
+/* ── WORLD SLIDE ── */
+.world-slide{height:100%;display:flex;flex-direction:column}
+.world-canvas-wrap{flex:1;position:relative}
+.world-canvas-wrap canvas{width:100%;height:100%;display:block}
+.world-hint{text-align:center;padding:6px;font-size:.7rem;color:var(--muted);flex-shrink:0}
 
 /* ── MODALS ── */
-.modal-bg{display:none;position:fixed;inset:0;background:#000b;z-index:200;align-items:center;justify-content:center;padding:20px}
+.modal-bg{display:none;position:fixed;inset:0;background:#000c;z-index:200;align-items:center;justify-content:center;padding:20px}
 .modal-bg.open{display:flex}
-.modal{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:22px;width:100%;max-width:340px}
-.modal h3{font-size:1rem;font-weight:700;margin-bottom:14px}
-.modal-pts{font-size:.8rem;color:var(--muted);margin-bottom:10px}
-.qty-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
-.qty-btn{background:var(--card2);border:1px solid var(--border);color:#fff;width:38px;height:38px;border-radius:9px;font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center}
-.qty-inp{flex:1;text-align:center;font-size:1.05rem;background:var(--card2);border:1px solid var(--border);color:#fff;border-radius:9px;padding:7px}
-.modal-cost{font-size:.8rem;margin-bottom:14px;color:var(--muted)}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:20px;width:100%;max-width:320px}
+.modal h3{font-size:.95rem;font-weight:700;margin-bottom:12px}
+.modal-pts{font-size:.78rem;color:var(--muted);margin-bottom:10px}
+.qty-row{display:flex;align-items:center;gap:7px;margin-bottom:10px}
+.qty-btn{background:var(--card2);border:1px solid var(--border);color:#fff;width:36px;height:36px;border-radius:8px;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.qty-inp{flex:1;text-align:center;font-size:1rem;background:var(--card2);border:1px solid var(--border);color:#fff;border-radius:8px;padding:7px}
+.modal-cost{font-size:.78rem;margin-bottom:12px;color:var(--muted)}
 .modal-cost span{color:var(--red);font-weight:700}
 .modal-btns{display:flex;gap:8px}
-.btn-confirm{flex:1;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:.88rem;font-weight:700;cursor:pointer}
-.btn-cancel{padding:10px 14px;background:var(--card2);border:1px solid var(--border);color:var(--muted);border-radius:10px;font-size:.88rem;cursor:pointer}
-
-/* attack modal */
-.atk-army-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:12px}
-.atk-unit{text-align:center;background:var(--card2);border-radius:10px;padding:8px 5px}
-.atk-unit-emoji{font-size:1.2rem}
-.atk-unit-name{font-size:.65rem;color:var(--muted);margin:2px 0}
-.atk-avail{font-size:.6rem;color:var(--accent);margin-bottom:3px}
-.atk-inp{width:100%;text-align:center;background:var(--bg);border:1px solid var(--border);color:#fff;border-radius:7px;padding:5px;font-size:.86rem}
+.btn-confirm{flex:1;padding:10px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:.86rem;font-weight:700;cursor:pointer}
+.btn-cancel{padding:10px 12px;background:var(--card2);border:1px solid var(--border);color:var(--muted);border-radius:10px;font-size:.86rem;cursor:pointer}
 
 /* ── TOAST ── */
-.cw-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(100px);
-  background:#1a2a4a;color:#fff;padding:11px 18px;border-radius:14px;font-size:.83rem;
-  z-index:300;pointer-events:none;transition:transform .3s ease;max-width:88vw;text-align:center;border:1px solid #ffffff10}
-.cw-toast.show{transform:translateX(-50%) translateY(0)}
-.cw-toast.success{background:#0f3a1f;border-color:#4cde8044}
-.cw-toast.danger{background:#3a0f0f;border-color:#ff4d4d44}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(100px);background:#1a2a4a;color:#fff;padding:10px 18px;border-radius:14px;font-size:.82rem;z-index:300;pointer-events:none;transition:transform .3s;max-width:88vw;text-align:center;border:1px solid #ffffff10}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.toast.s{background:#0f3a1f;border-color:#4cde8044}
+.toast.d{background:#3a0f0f;border-color:#ff4d4d44}
 
-/* ── SWIPE HINT ── */
-.swipe-hint{position:fixed;left:0;top:50%;transform:translateY(-50%);background:#ffffff06;
-  border:1px solid var(--border);border-left:none;border-radius:0 8px 8px 0;
-  padding:8px 5px;font-size:.68rem;color:var(--muted);writing-mode:vertical-rl;
-  letter-spacing:.06em;pointer-events:none;opacity:.45}
-
-/* ── LOGIN / LOADING ── */
-#no-session{display:none;text-align:center;padding:60px 20px;color:var(--muted)}
-#cw-loading{text-align:center;padding:60px 20px;font-size:1.2rem}
-.bottom-space{height:40px}
+/* ── GUARDS ── */
+#no-session{display:none;text-align:center;padding:60px 20px;color:var(--muted);flex:1}
+#cw-loading{text-align:center;padding:60px 20px;font-size:1.2rem;flex:1}
 </style>
 </head>
 <body>
 
 <div id="cw-loading">⚔️ 載入中...</div>
 <div id="no-session">
-  <div style="font-size:3rem;margin-bottom:16px">🔒</div>
-  <div style="font-size:1.1rem;font-weight:700;margin-bottom:8px">請先登入</div>
-  <div style="margin-bottom:20px">請回到投注頁面登入後再進入城池大戰</div>
-  <button onclick="goBack()" style="background:var(--accent);border:none;color:#fff;padding:12px 28px;border-radius:12px;font-size:.9rem;cursor:pointer">← 返回投注頁</button>
+  <div style="font-size:3rem;margin-bottom:12px">🔒</div>
+  <div style="font-size:1rem;font-weight:700;margin-bottom:8px">請先登入</div>
+  <div style="margin-bottom:20px;font-size:.85rem">請回到投注頁面登入後再進入</div>
+  <button onclick="goBack()" style="background:var(--accent);border:none;color:#fff;padding:11px 24px;border-radius:12px;cursor:pointer">← 返回投注頁</button>
 </div>
 
-<div id="cw-main" style="display:none">
-
-  <!-- Header -->
-  <div class="cw-header">
-    <div class="cw-header-row">
-      <div class="cw-title">🏰 城池大戰</div>
-      <button class="back-btn" onclick="goBack()">← 返回投注</button>
+<div id="cw-main" style="display:contents">
+  <!-- HEADER -->
+  <div class="hdr">
+    <div class="hdr-row">
+      <div class="hdr-title">⚔️ 城池大戰</div>
+      <button class="back-btn" onclick="goBack()">← 返回</button>
     </div>
-    <div class="my-bar">
-      <span class="my-pts">💎 <span id="my-pts">0</span> 點</span>
-      <span class="my-hp">❤️ <span id="my-hp">500</span>/500</span>
-      <span style="color:#a78bfa">🧱 DEF <span id="my-def">0</span></span>
-      <span id="my-shield-show" style="display:none;color:#a78bfa">🛡️ 護盾中</span>
-    </div>
-  </div>
-
-  <!-- ══ 戰場地圖 ══ -->
-  <div class="map-wrap">
-    <div class="map-center"></div>
-    <div class="castles-grid" id="battlefield"></div>
-  </div>
-
-  <!-- ══ 戰役畫面 ══ -->
-  <div class="battle-scene" id="battle-scene">
-    <div class="bs-castle" id="bs-attacker">
-      <div class="bs-emoji" id="bs-atk-emoji">🏰</div>
-      <div class="bs-name" id="bs-atk-name">—</div>
-      <div class="bs-hp" id="bs-atk-hp"></div>
-    </div>
-    <div class="bs-mid">
-      <div class="troops-march" id="bs-troops"></div>
-      <div class="vs-arrow">⚔️</div>
-      <div id="bs-dmg-wrap"></div>
-      <div class="bs-label" id="bs-label">攻打中</div>
-      <div class="bs-result" id="bs-result-tag" style="display:none"></div>
-    </div>
-    <div class="bs-castle" id="bs-defender">
-      <div class="bs-emoji" id="bs-def-emoji">🏰</div>
-      <div class="bs-name" id="bs-def-name">—</div>
-      <div class="bs-hp" id="bs-def-hp"></div>
+    <div class="hdr-stats">
+      <span class="stat-hp">❤️ <span id="h-hp">500</span>/500 HP</span>
+      <span class="stat-pts">💎 <span id="h-pts">0</span> 點</span>
+      <span class="stat-def">🧱 DEF <span id="h-def">0</span></span>
+      <span id="h-shield" style="display:none;color:#a78bfa">🛡️ 護盾中</span>
     </div>
   </div>
 
-  <!-- ══ 行動面板 ══ -->
-  <div class="action-panel">
-    <div class="panel-title">
-      <span>⚔️ 行動面板</span>
-      <span class="pts-badge">💎 <span id="action-pts">0</span> 點</span>
-    </div>
-
-    <div style="font-size:.72rem;color:var(--muted);margin-bottom:7px">🪖 招募部隊</div>
-    <div class="unit-row">
-      <div class="unit-btn" onclick="openRecruit('soldier')">
-        <div class="u-emoji">🗡️</div>
-        <div class="u-name">小兵</div>
-        <div class="u-atk">ATK 25</div>
-        <div class="u-cost">10 點</div>
-      </div>
-      <div class="unit-btn" onclick="openRecruit('elite')">
-        <div class="u-emoji">⚔️</div>
-        <div class="u-name">強化小兵</div>
-        <div class="u-atk">ATK 80 穿甲10%</div>
-        <div class="u-cost">30 點</div>
-      </div>
-      <div class="unit-btn" onclick="openRecruit('catapult')">
-        <div class="u-emoji">💣</div>
-        <div class="u-name">投石車</div>
-        <div class="u-atk">ATK 200 穿甲50%</div>
-        <div class="u-cost">80 點</div>
-      </div>
-    </div>
-
-    <div style="font-size:.72rem;color:var(--muted);margin-bottom:7px">🏰 城防</div>
-    <div class="def-row">
-      <div class="def-btn" onclick="upgradeWall()">
-        🧱 升級城牆
-        <small>20點/級 +25DEF 最多4級</small>
-      </div>
-      <div class="def-btn" onclick="buyShield()">
-        🛡️ 購買護盾
-        <small>50點 · 抵擋一次攻擊</small>
-      </div>
-    </div>
+  <!-- TABS -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab(0)">🏰 我的城池</div>
+    <div class="tab" onclick="switchTab(1)">⚔️ 攻打目標</div>
+    <div class="tab" onclick="switchTab(2)">🗺️ 全部城池</div>
   </div>
 
-  <div class="bottom-space"></div>
+  <!-- SLIDES -->
+  <div class="slides-track">
+    <div class="slides-inner" id="slides-inner">
+
+      <!-- ══ SLIDE 0: MY CASTLE ══ -->
+      <div class="slide">
+        <div class="attack-banner" id="attack-banner">🔴 正在被攻打！</div>
+        <div class="castle-canvas-wrap">
+          <canvas id="canvas-mine"></canvas>
+        </div>
+        <div class="mine-info">
+          <div class="info-chip"><span style="color:var(--muted);font-size:.66rem">血量</span><span class="chip-val" id="info-hp" style="color:var(--green)">500</span></div>
+          <div class="info-chip"><span style="color:var(--muted);font-size:.66rem">城防</span><span class="chip-val" id="info-def" style="color:#a78bfa">0</span></div>
+          <div class="info-chip"><span style="color:var(--muted);font-size:.66rem">部隊</span><span class="chip-val" id="info-army" style="font-size:.72rem">—</span></div>
+          <div class="info-chip"><span style="color:var(--muted);font-size:.66rem">點數</span><span class="chip-val" id="info-pts" style="color:var(--yellow)">0</span></div>
+        </div>
+        <div class="mine-actions">
+          <div class="act-btn" onclick="openRecruit('soldier')"><span class="ab-icon">🗡️</span>小兵<br><small style="color:var(--muted)">10點</small></div>
+          <div class="act-btn" onclick="openRecruit('elite')"><span class="ab-icon">⚔️</span>強化兵<br><small style="color:var(--muted)">30點</small></div>
+          <div class="act-btn" onclick="openRecruit('catapult')"><span class="ab-icon">💣</span>投石車<br><small style="color:var(--muted)">80點</small></div>
+          <div class="act-btn" onclick="upgradeWall()"><span class="ab-icon">🧱</span>升城牆<br><small style="color:var(--muted)">20點</small></div>
+          <div class="act-btn" onclick="buyShield()"><span class="ab-icon">🛡️</span>護盾<br><small style="color:var(--muted)">50點</small></div>
+        </div>
+      </div>
+
+      <!-- ══ SLIDE 1: ATTACK ══ -->
+      <div class="slide">
+        <div class="atk-slide-inner">
+          <div class="atk-scene">
+            <canvas id="canvas-atk"></canvas>
+            <div id="no-target" class="no-target">
+              <div style="font-size:2rem">⚔️</div>
+              <div>從「全部城池」點選攻打目標</div>
+            </div>
+          </div>
+          <div class="atk-config" id="atk-config" style="display:none">
+            <div class="atk-config-title">
+              <span>派遣兵力攻打 <b id="atk-tname" style="color:var(--red)"></b></span>
+            </div>
+            <div class="unit-deploy">
+              <div class="deploy-cell">
+                <div class="dc-emoji">🗡️</div>
+                <div class="dc-name">小兵</div>
+                <div class="dc-avail" id="d-s-avail">0隊</div>
+                <input type="number" class="dc-inp" id="d-s" min="0" value="0" oninput="calcDmgPreview()">
+              </div>
+              <div class="deploy-cell">
+                <div class="dc-emoji">⚔️</div>
+                <div class="dc-name">強化兵</div>
+                <div class="dc-avail" id="d-e-avail">0隊</div>
+                <input type="number" class="dc-inp" id="d-e" min="0" value="0" oninput="calcDmgPreview()">
+              </div>
+              <div class="deploy-cell">
+                <div class="dc-emoji">💣</div>
+                <div class="dc-name">投石車</div>
+                <div class="dc-avail" id="d-c-avail">0隊</div>
+                <input type="number" class="dc-inp" id="d-c" min="0" value="0" oninput="calcDmgPreview()">
+              </div>
+            </div>
+            <div class="dmg-preview" id="dmg-preview"></div>
+            <button class="launch-btn" id="launch-btn" onclick="launchAttack()">⚔️ 發動攻擊</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ SLIDE 2: WORLD MAP ══ -->
+      <div class="slide">
+        <div class="world-slide">
+          <div class="world-canvas-wrap">
+            <canvas id="canvas-world"></canvas>
+          </div>
+          <div class="world-hint">點選敵方城池可選為攻打目標</div>
+        </div>
+      </div>
+
+    </div><!-- slides-inner -->
+  </div><!-- slides-track -->
 </div>
-
-<!-- 左側返回提示 -->
-<div class="swipe-hint">右滑返回</div>
-
-<!-- Toast -->
-<div class="cw-toast" id="cw-toast"></div>
 
 <!-- 招募 Modal -->
 <div class="modal-bg" id="recruit-modal">
@@ -299,309 +225,574 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   </div>
 </div>
 
-<!-- 攻擊 Modal -->
-<div class="modal-bg" id="attack-modal">
-  <div class="modal">
-    <h3>⚔️ 攻打 <span id="atk-target-name" style="color:var(--red)"></span></h3>
-    <div class="modal-pts" id="atk-hp-preview" style="margin-bottom:10px"></div>
-    <div class="atk-army-row">
-      <div class="atk-unit">
-        <div class="atk-unit-emoji">🗡️</div>
-        <div class="atk-unit-name">小兵</div>
-        <div class="atk-avail" id="atk-s-avail">0隊</div>
-        <input type="number" class="atk-inp" id="atk-s" min="0" value="0" oninput="updateAtkPreview()">
-      </div>
-      <div class="atk-unit">
-        <div class="atk-unit-emoji">⚔️</div>
-        <div class="atk-unit-name">強化小兵</div>
-        <div class="atk-avail" id="atk-e-avail">0隊</div>
-        <input type="number" class="atk-inp" id="atk-e" min="0" value="0" oninput="updateAtkPreview()">
-      </div>
-      <div class="atk-unit">
-        <div class="atk-unit-emoji">💣</div>
-        <div class="atk-unit-name">投石車</div>
-        <div class="atk-avail" id="atk-c-avail">0隊</div>
-        <input type="number" class="atk-inp" id="atk-c" min="0" value="0" oninput="updateAtkPreview()">
-      </div>
-    </div>
-    <div id="atk-dmg-preview" style="text-align:center;font-size:.82rem;color:var(--red);font-weight:700;margin-bottom:12px;min-height:20px"></div>
-    <div class="modal-btns">
-      <button class="btn-confirm" style="background:linear-gradient(135deg,#6a1515,#8a2020)" onclick="launchAttack()">⚔️ 發動攻擊</button>
-      <button class="btn-cancel" onclick="closeModal('attack-modal')">取消</button>
-    </div>
-  </div>
-</div>
+<!-- Toast -->
+<div class="toast" id="toast"></div>
 
 <script>
-// ── Session ──
+// ══════════════════════════════════════════════
+//  SESSION & STATE
+// ══════════════════════════════════════════════
 let session = null;
 try { session = JSON.parse(localStorage.getItem('vb_session')); } catch{}
 
-const UNIT_INFO = {
+const UNITS = {
   soldier:  {name:'小兵',    emoji:'🗡️', atk:25,  cost:10,  pierce:0},
-  elite:    {name:'強化小兵',emoji:'⚔️', atk:80,  cost:30,  pierce:0.1},
+  elite:    {name:'強化兵',  emoji:'⚔️', atk:80,  cost:30,  pierce:0.1},
   catapult: {name:'投石車',  emoji:'💣', atk:200, cost:80,  pierce:0.5},
 };
 const MAX_HP = 500;
+
 let _castles = [];
 let _recruitKey = null;
-let _attackTargetId = null;
-let _attackTargetDef = 0;
-let _battleSceneTimer = null;
+let _atkTargetId = null;
+let _atkTargetDef = 0;
+let _atkTargetHp = 0;
+let _currentTab = 0;
+let _animFrame = null;
+let _atkParticles = [];
+let _atkPhase = 'idle'; // idle | marching | impact | done
+let _atkPhaseTimer = 0;
+let _impactX = 0; _impactY = 0;
+let _lastResult = null;
+let _dmgNumbers = [];
 
+// ══════════════════════════════════════════════
+//  NAVIGATION
+// ══════════════════════════════════════════════
 function goBack() { window.location.href = '/virtual'; }
 
-// 右滑返回
-(function(){
-  let sx=0;
-  document.addEventListener('touchstart',e=>{sx=e.touches[0].clientX},{passive:true});
-  document.addEventListener('touchend',e=>{if(e.changedTouches[0].clientX-sx>80)goBack();},{passive:true});
-})();
-
-function toast(msg, type='') {
-  const t = document.getElementById('cw-toast');
-  t.textContent = msg; t.className='cw-toast'+(type?' '+type:'');
-  void t.offsetWidth; t.classList.add('show');
-  clearTimeout(t._timer); t._timer=setTimeout(()=>t.classList.remove('show'),3000);
+function switchTab(idx) {
+  _currentTab = idx;
+  document.getElementById('slides-inner').style.transform = `translateX(${-idx*33.333}%)`;
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===idx));
+  if (idx===1) renderAtkCanvas();
+  if (idx===2) renderWorldCanvas();
 }
 
-// ── 初始化 ──
-window.addEventListener('DOMContentLoaded', async () => {
-  document.getElementById('cw-loading').style.display = 'none';
-  if (!session) { document.getElementById('no-session').style.display='block'; return; }
-  document.getElementById('cw-main').style.display = 'block';
-  await fetch('/api/castle/init', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({user_id: session.id||session.user_id, name: session.name})});
-  await loadState();
-  setInterval(loadState, 15000);
+// Swipe between slides
+(function(){
+  const track = document.querySelector('.slides-track');
+  let sx=0, moved=false;
+  track.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;moved=false;},{passive:true});
+  track.addEventListener('touchmove',e=>{if(Math.abs(e.touches[0].clientX-sx)>15)moved=true;},{passive:true});
+  track.addEventListener('touchend',e=>{
+    if(!moved)return;
+    const dx=e.changedTouches[0].clientX-sx;
+    if(dx<-50&&_currentTab<2) switchTab(_currentTab+1);
+    else if(dx>50&&_currentTab>0) switchTab(_currentTab-1);
+    else if(dx>80&&_currentTab===0) goBack();
+  },{passive:true});
+})();
+
+// ══════════════════════════════════════════════
+//  CASTLE CANVAS RENDERER (isometric style)
+// ══════════════════════════════════════════════
+const STONE_COLORS = {
+  top:   ['#8a8a8a','#9a9a9a','#7a7a7a'],
+  wall:  ['#6b6b6b','#5a5a5a','#7a7a7a'],
+  tower: ['#505050','#606060','#454545'],
+  roof:  ['#8b1a1a','#9e2020','#7a1515'],
+  keep:  ['#4a4a70','#5a5a85','#3a3a5a'],
+  ground:['#c4a84a','#d4b85a','#b49840'],
+  gate:  '#1a1a1a',
+  sky:   '#0d0d24',
+};
+const DMG_COLORS = { top:'#c0603a',wall:'#8b3a1a',tower:'#6b2a0a',roof:'#6b1010',keep:'#3a3a5a',ground:'#9a7830',gate:'#1a1a1a',sky:'#0d0d24'};
+const FIRE_COLORS = { top:'#ef4444',wall:'#dc2626',tower:'#b91c1c',roof:'#b91c1c',keep:'#3a3a5a',ground:'#8b4513',gate:'#1a1a1a',sky:'#0d0d24'};
+
+function getScheme(hpPct) {
+  if(hpPct>0.6) return STONE_COLORS;
+  if(hpPct>0.3) return DMG_COLORS;
+  return FIRE_COLORS;
+}
+
+// Draw isometric block
+function isoBlock(ctx, ox, oy, tx, ty, tz, bw, bh, bd, scheme) {
+  const TW=36, TH=18;
+  function ts(x,y,z){ return {x:(x-y)*TW/2+ox, y:(x+y)*TH/2-z*TH+oy};}
+
+  // Top face
+  const t0=ts(tx,ty+bh,tz+bd), t1=ts(tx+bw,ty+bh,tz+bd), t2=ts(tx+bw,ty,tz+bd), t3=ts(tx,ty,tz+bd);
+  ctx.beginPath();ctx.moveTo(t0.x,t0.y);ctx.lineTo(t1.x,t1.y);ctx.lineTo(t2.x,t2.y);ctx.lineTo(t3.x,t3.y);ctx.closePath();
+  ctx.fillStyle=scheme.top[0];ctx.fill();
+  ctx.strokeStyle='#00000030';ctx.lineWidth=.8;ctx.stroke();
+
+  // Left face
+  const l0=ts(tx,ty,tz+bd),l1=ts(tx,ty+bh,tz+bd),l2=ts(tx,ty+bh,tz),l3=ts(tx,ty,tz);
+  ctx.beginPath();ctx.moveTo(l0.x,l0.y);ctx.lineTo(l1.x,l1.y);ctx.lineTo(l2.x,l2.y);ctx.lineTo(l3.x,l3.y);ctx.closePath();
+  ctx.fillStyle=scheme.wall[0];ctx.fill();ctx.stroke();
+
+  // Right face
+  const r0=ts(tx+bw,ty+bh,tz+bd),r1=ts(tx+bw,ty,tz+bd),r2=ts(tx+bw,ty,tz),r3=ts(tx+bw,ty+bh,tz);
+  ctx.beginPath();ctx.moveTo(r0.x,r0.y);ctx.lineTo(r1.x,r1.y);ctx.lineTo(r2.x,r2.y);ctx.lineTo(r3.x,r3.y);ctx.closePath();
+  ctx.fillStyle=scheme.wall[1];ctx.fill();ctx.stroke();
+}
+
+// Draw full castle centered at (cx, cy) on canvas ctx
+// scale: 1.0 = normal, 0.5 = half size
+function drawCastle(ctx, cx, cy, scale, hpPct, label='', isMe=false, underAttack=false) {
+  const s = scale;
+  const TW = 36*s, TH = 18*s;
+  const oy = cy + 4*TH; // center ground at cy
+
+  function ts(x,y,z){ return {x:(x-y)*TW/2+cx, y:(x+y)*TH/2-z*TH+oy};}
+  function face(pts, color, stroke='#00000030') {
+    ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+    for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x,pts[i].y);
+    ctx.closePath(); ctx.fillStyle=color; ctx.fill();
+    if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=.7;ctx.stroke();}
+  }
+  function block(tx,ty,tz,bw,bh,bd, top,left,right){
+    face([ts(tx,ty+bh,tz+bd),ts(tx+bw,ty+bh,tz+bd),ts(tx+bw,ty,tz+bd),ts(tx,ty,tz+bd)], top);
+    face([ts(tx,ty,tz+bd),ts(tx,ty+bh,tz+bd),ts(tx,ty+bh,tz),ts(tx,ty,tz)], left);
+    face([ts(tx+bw,ty+bh,tz+bd),ts(tx+bw,ty,tz+bd),ts(tx+bw,ty,tz),ts(tx+bw,ty+bh,tz)], right);
+  }
+
+  const sc = getScheme(hpPct);
+  const gclr = sc.ground;
+  const tclr = [sc.top[0], sc.wall[0], sc.wall[1]];
+  const wclr = [sc.wall[0], sc.wall[1], '#3a3a3a'];
+  const twrclr = [sc.tower[0], sc.tower[1], sc.tower[2]];
+  const keepTop = [sc.keep[0]||'#4a4a70', sc.keep[1]||'#5a5a85', sc.keep[2]||'#3a3a5a'];
+  const roofClr = [sc.roof[0], sc.roof[1], sc.roof[2]];
+
+  // ── Ground ──
+  block(0,0,0, 10,10,.5, gclr[0],gclr[2],gclr[1]);
+  // inner courtyard
+  block(2,2,.5, 6,6,.2, '#d4c060','#b8a040','#c4b050');
+
+  // ── Outer walls ──
+  // Back-left wall (along x axis, y=0)
+  block(0,0,.5, 10,1.5,2, ...tclr);
+  // Back-right wall (along y axis, x=0)
+  block(0,0,.5, 1.5,10,2, ...tclr);
+  // Front-left wall (y=8.5)
+  block(1.5,8.5,.5, 2.5,1.5,2, ...wclr);
+  block(6,8.5,.5, 2.5,1.5,2, ...wclr);
+  // Front-right wall (x=8.5)
+  block(8.5,1.5,.5, 1.5,7,2, ...tclr);
+  // Gate gap area (x=1.5-6, y=8.5-10) - lower wall = gate
+  block(1.5,8.5,.5, 4.5,1.5,1.2, sc.gate,sc.gate,sc.gate);
+
+  // ── Corner towers ──
+  block(0,0,.5,  1.5,1.5,3.5, ...twrclr);  // BL (back)
+  block(8.5,0,.5,1.5,1.5,3.5, ...twrclr);  // BR (back-right)
+  block(0,8.5,.5,1.5,1.5,3.5, ...twrclr);  // FL (front-left)
+  block(8.5,8.5,.5,1.5,1.5,3.5,...twrclr); // FR (front)
+
+  // Tower roofs (pyramidesque - just caps)
+  block(0,0,4,    1.5,1.5,.8, ...roofClr);
+  block(8.5,0,4,  1.5,1.5,.8, ...roofClr);
+  block(0,8.5,4,  1.5,1.5,.8, ...roofClr);
+  block(8.5,8.5,4,1.5,1.5,.8, ...roofClr);
+
+  // ── Keep (center) ──
+  block(3.5,3.5,.7, 3,3,4.5, ...keepTop);
+  // Keep roof
+  block(3.5,3.5,5.2, 3,3,.8, ...roofClr);
+
+  // Flag pole on keep
+  const flagBase = ts(5,5,6);
+  ctx.beginPath();ctx.moveTo(flagBase.x,flagBase.y);ctx.lineTo(flagBase.x,flagBase.y-22*s);
+  ctx.strokeStyle='#888';ctx.lineWidth=1.5*s;ctx.stroke();
+  // Flag
+  const flagT=ts(5,5,6); flagT.y-=22*s;
+  const flagColor = isMe ? '#6c63ff' : '#cc2222';
+  ctx.fillStyle=flagColor;
+  ctx.beginPath();ctx.moveTo(flagT.x,flagT.y);ctx.lineTo(flagT.x+14*s,flagT.y+5*s);ctx.lineTo(flagT.x,flagT.y+10*s);ctx.closePath();ctx.fill();
+
+  // ── Attack effect (red flicker) ──
+  if(underAttack) {
+    const t = Date.now()/400;
+    ctx.save();
+    ctx.globalAlpha=0.15+0.12*Math.sin(t);
+    ctx.fillStyle='#ff2200';
+    const g=ts(5,5,0);
+    const grd=ctx.createRadialGradient(g.x,g.y,0,g.x,g.y,80*s);
+    grd.addColorStop(0,'#ff2200');grd.addColorStop(1,'transparent');
+    ctx.fillStyle=grd;
+    ctx.fillRect(g.x-100*s,g.y-100*s,200*s,200*s);
+    ctx.restore();
+  }
+
+  // ── HP bar ──
+  const barY = ts(5,10,0).y + 10*s;
+  const barW = 80*s; const barH = 7*s;
+  const barX = cx - barW/2;
+  ctx.fillStyle='#00000060';ctx.beginPath();ctx.roundRect(barX,barY,barW,barH,3);ctx.fill();
+  const hpW = Math.max(0,barW*hpPct);
+  const hpC = hpPct>0.6?'#4cde80':hpPct>0.3?'#f5c842':'#ff4d4d';
+  if(hpW>0){ctx.fillStyle=hpC;ctx.beginPath();ctx.roundRect(barX,barY,hpW,barH,3);ctx.fill();}
+
+  // ── Label ──
+  if(label){
+    ctx.font=`bold ${Math.max(10,12*s)}px -apple-system,sans-serif`;
+    ctx.textAlign='center';
+    ctx.fillStyle=isMe?'#a78bfa':'#f0f0ff';
+    ctx.fillText(label, cx, barY+barH+14*s);
+  }
+
+  // ── HP text ──
+  const hpVal = Math.round(hpPct*MAX_HP);
+  ctx.font=`${Math.max(8,9*s)}px -apple-system,sans-serif`;
+  ctx.textAlign='center';ctx.fillStyle='#ccc';
+  ctx.fillText(`${hpVal}/500`, cx, barY+barH+4*s+1);
+}
+
+// ══════════════════════════════════════════════
+//  RENDER: MY CASTLE
+// ══════════════════════════════════════════════
+function renderMineCanvas() {
+  const canv = document.getElementById('canvas-mine');
+  const wrap = canv.parentElement;
+  canv.width = wrap.clientWidth;
+  canv.height = wrap.clientHeight;
+  const ctx = canv.getContext('2d');
+  ctx.clearRect(0,0,canv.width,canv.height);
+
+  // Sky gradient
+  const sky = ctx.createLinearGradient(0,0,0,canv.height);
+  sky.addColorStop(0,'#0a0a20');sky.addColorStop(1,'#1a1020');
+  ctx.fillStyle=sky;ctx.fillRect(0,0,canv.width,canv.height);
+
+  const me = _castles.find(c=>c.user_id===getMe());
+  if(!me) return;
+  const hpPct = me.hp/MAX_HP;
+  const ua = _castles.some(c=>c.user_id!==getMe() && c._last_atk_target===getMe());
+
+  drawCastle(ctx, canv.width/2, canv.height*0.42, 1.0, hpPct, me.name, true, ua);
+}
+
+// ══════════════════════════════════════════════
+//  RENDER: ATTACK CANVAS (my castle -> troops -> target)
+// ══════════════════════════════════════════════
+function renderAtkCanvas() {
+  const canv = document.getElementById('canvas-atk');
+  const noTarget = document.getElementById('no-target');
+  const cfg = document.getElementById('atk-config');
+
+  if(!_atkTargetId) {
+    canv.style.display='none'; noTarget.style.display='flex'; cfg.style.display='none'; return;
+  }
+  noTarget.style.display='none'; cfg.style.display='block'; canv.style.display='block';
+
+  const wrap = canv.parentElement;
+  canv.width = wrap.clientWidth; canv.height = wrap.clientHeight;
+  const ctx = canv.getContext('2d');
+
+  ctx.clearRect(0,0,canv.width,canv.height);
+  const sky=ctx.createLinearGradient(0,0,0,canv.height);
+  sky.addColorStop(0,'#0d0520');sky.addColorStop(1,'#1a0508');
+  ctx.fillStyle=sky;ctx.fillRect(0,0,canv.width,canv.height);
+
+  const me   = _castles.find(c=>c.user_id===getMe());
+  const them = _castles.find(c=>c.user_id===_atkTargetId);
+  if(!me||!them) return;
+
+  const W=canv.width,H=canv.height;
+  const myCX=W*0.22, themCX=W*0.78, castleY=H*0.5;
+
+  drawCastle(ctx, myCX, castleY, 0.6, me.hp/MAX_HP, me.name, true, false);
+  drawCastle(ctx, themCX, castleY, 0.6, them.hp/MAX_HP, them.name, false, _atkPhase==='marching');
+
+  // Draw troops marching
+  if(_atkPhase==='marching') {
+    const prog = Math.min(1, (Date.now()-_atkPhaseTimer)/1800);
+    _atkParticles.forEach(p => {
+      const px = myCX + (themCX - myCX - 60) * prog + p.ox;
+      const py = castleY + p.oy - Math.sin(prog*Math.PI)*30;
+      ctx.save();
+      ctx.font=`${20}px serif`;
+      ctx.textAlign='center';
+      ctx.globalAlpha=Math.min(1,prog*4);
+      ctx.fillText(p.emoji, px, py);
+      ctx.restore();
+    });
+    if(prog>=1) { _atkPhase='impact'; _impactX=themCX; _impactY=castleY-30; }
+    requestAnimationFrame(()=>{ if(_currentTab===1) renderAtkCanvas(); });
+  }
+
+  // Impact effect
+  if(_atkPhase==='impact') {
+    const age = Date.now()-_atkPhaseTimer-1800;
+    const r = Math.min(60, age*0.18);
+    const alpha = Math.max(0, 1-age/600);
+    const grd=ctx.createRadialGradient(_impactX,_impactY,0,_impactX,_impactY,r);
+    grd.addColorStop(0,`rgba(255,200,0,${alpha})`);
+    grd.addColorStop(0.5,`rgba(255,60,0,${alpha*0.6})`);
+    grd.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=grd;ctx.fillRect(_impactX-r,_impactY-r,r*2,r*2);
+
+    // Damage number
+    if(_lastResult) {
+      ctx.save();
+      const ny = _impactY - 30 - age*0.06;
+      ctx.globalAlpha=Math.max(0,1-age/700);
+      ctx.font=`bold 24px -apple-system,sans-serif`;
+      ctx.textAlign='center';
+      ctx.fillStyle=_lastResult.fallen?'#ff8800':_lastResult.shielded?'#a78bfa':'#ff4444';
+      ctx.fillText(`-${_lastResult.damage}HP`, _impactX, ny);
+      ctx.restore();
+    }
+
+    if(alpha<=0) { _atkPhase='done'; _lastResult=null; }
+    else requestAnimationFrame(()=>{ if(_currentTab===1) renderAtkCanvas(); });
+  }
+
+  // "VS" divider
+  ctx.font='bold 18px -apple-system,sans-serif';
+  ctx.textAlign='center';ctx.fillStyle='#ff444488';
+  ctx.fillText('VS', W/2, castleY-20);
+}
+
+// ══════════════════════════════════════════════
+//  RENDER: WORLD MAP (4 castles)
+// ══════════════════════════════════════════════
+function renderWorldCanvas() {
+  const canv = document.getElementById('canvas-world');
+  const wrap = canv.parentElement;
+  canv.width = wrap.clientWidth; canv.height = wrap.clientHeight;
+  const ctx = canv.getContext('2d');
+
+  ctx.clearRect(0,0,canv.width,canv.height);
+  // Map background
+  const bg=ctx.createLinearGradient(0,0,canv.width,canv.height);
+  bg.addColorStop(0,'#0a1a0a');bg.addColorStop(1,'#0a0a18');
+  ctx.fillStyle=bg;ctx.fillRect(0,0,canv.width,canv.height);
+
+  // Grid lines (terrain)
+  ctx.strokeStyle='#ffffff06';ctx.lineWidth=1;
+  for(let x=0;x<canv.width;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,canv.height);ctx.stroke();}
+  for(let y=0;y<canv.height;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(canv.width,y);ctx.stroke();}
+
+  // Center cross road
+  ctx.strokeStyle='#ffffff0a';ctx.lineWidth=8;
+  ctx.beginPath();ctx.moveTo(canv.width/2,0);ctx.lineTo(canv.width/2,canv.height);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(0,canv.height/2);ctx.lineTo(canv.width,canv.height/2);ctx.stroke();
+
+  if(!_castles.length) return;
+  const W=canv.width,H=canv.height;
+  const positions=[
+    [W*0.28,H*0.28],[W*0.72,H*0.28],
+    [W*0.28,H*0.72],[W*0.72,H*0.72],
+  ];
+
+  _worldCastlePositions = positions.slice(0,_castles.length);
+
+  _castles.forEach((c,i)=>{
+    if(!positions[i]) return;
+    const [cx,cy] = positions[i];
+    const isMe = c.user_id===getMe();
+    const isTarget = c.user_id===_atkTargetId;
+    const hpPct = c.hp/MAX_HP;
+
+    // Territory circle
+    const terr=ctx.createRadialGradient(cx,cy,0,cx,cy,70);
+    if(isMe)    {terr.addColorStop(0,'#6c63ff18');terr.addColorStop(1,'transparent');}
+    else if(isTarget){terr.addColorStop(0,'#ff444422');terr.addColorStop(1,'transparent');}
+    else        {terr.addColorStop(0,'#ffffff08');terr.addColorStop(1,'transparent');}
+    ctx.fillStyle=terr;ctx.beginPath();ctx.arc(cx,cy,70,0,Math.PI*2);ctx.fill();
+
+    // Target ring
+    if(isTarget){
+      ctx.save();
+      ctx.strokeStyle='#ff4444';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+      ctx.beginPath();ctx.arc(cx,cy,56,0,Math.PI*2);ctx.stroke();
+      ctx.setLineDash([]);ctx.restore();
+    }
+    if(isMe){
+      ctx.strokeStyle='#6c63ff55';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.arc(cx,cy,56,0,Math.PI*2);ctx.stroke();
+    }
+
+    drawCastle(ctx, cx, cy, 0.48, hpPct, c.name, isMe, false);
+  });
+}
+let _worldCastlePositions = [];
+
+// World map click → select target
+document.getElementById('canvas-world').addEventListener('click', e=>{
+  const canv=e.currentTarget;
+  const rect=canv.getBoundingClientRect();
+  const mx=(e.clientX-rect.left)*(canv.width/rect.width);
+  const my=(e.clientY-rect.top)*(canv.height/rect.height);
+  const myId=getMe();
+
+  _castles.forEach((c,i)=>{
+    if(c.user_id===myId||!_worldCastlePositions[i]) return;
+    const [px,py]=_worldCastlePositions[i];
+    const d=Math.hypot(mx-px,my-py);
+    if(d<56){
+      // Select as target
+      if(c.is_banned){toast('🚫 '+c.ban_msg,'d');return;}
+      _atkTargetId=c.user_id; _atkTargetDef=c.defense; _atkTargetHp=c.hp;
+      document.getElementById('atk-tname').textContent=c.name;
+      const army=(_castles.find(x=>x.user_id===myId)||{}).army||{};
+      document.getElementById('d-s-avail').textContent=`${army.soldier||0}隊`;
+      document.getElementById('d-e-avail').textContent=`${army.elite||0}隊`;
+      document.getElementById('d-c-avail').textContent=`${army.catapult||0}隊`;
+      document.getElementById('d-s').value=0;
+      document.getElementById('d-e').value=0;
+      document.getElementById('d-c').value=0;
+      document.getElementById('dmg-preview').textContent='';
+      renderWorldCanvas();
+      toast(`⚔️ 已選定攻打目標：${c.name}`);
+      switchTab(1);
+    }
+  });
 });
+
+// ══════════════════════════════════════════════
+//  API & STATE
+// ══════════════════════════════════════════════
+function getMe() { return session?(session.id||session.user_id):null; }
 
 async function loadState() {
   const d = await fetch('/api/castle/state').then(r=>r.json()).catch(()=>null);
-  if (!d||!d.ok) return;
+  if(!d||!d.ok) return;
   _castles = d.castles;
-  renderBattlefield(d.castles);
-}
+  updateHeader();
+  renderMineCanvas();
+  if(_currentTab===1) renderAtkCanvas();
+  if(_currentTab===2) renderWorldCanvas();
 
-function getMe() { return session?(session.id||session.user_id):null; }
-
-function hpColor(pct) {
-  return pct>60?'#4cde80':pct>30?'#f5c842':'#ff4d4d';
-}
-function castleEmoji(pct) {
-  return pct>60?'🏰':pct>30?'🏚️':'🔥';
-}
-
-function renderBattlefield(castles) {
-  const myId = getMe();
-  const bf = document.getElementById('battlefield');
-
-  bf.innerHTML = castles.map(c => {
-    const isMine  = c.user_id === myId;
-    const hpPct   = Math.max(0, Math.round(c.hp / MAX_HP * 100));
-    const hc      = hpColor(hpPct);
-    const art     = castleEmoji(hpPct);
-    const critical= hpPct<=30 && !isMine;
-
-    // 更新 header bar
-    if (isMine) {
-      document.getElementById('my-pts').textContent      = c.points;
-      document.getElementById('my-hp').textContent       = c.hp;
-      document.getElementById('my-def').textContent      = c.defense;
-      document.getElementById('action-pts').textContent  = c.points;
-      document.getElementById('my-shield-show').style.display = c.has_shield?'inline':'none';
-      window._myArmy = c.army;
-    }
-
-    // 部隊展示
-    const troopChips = [
-      c.army.soldier  ? `<div class="troop-chip"><span class="troop-emoji">🗡️</span>×${c.army.soldier}</div>` : '',
-      c.army.elite    ? `<div class="troop-chip"><span class="troop-emoji">⚔️</span>×${c.army.elite}</div>` : '',
-      c.army.catapult ? `<div class="troop-chip"><span class="troop-emoji">💣</span>×${c.army.catapult}</div>` : '',
-    ].join('');
-
-    const wallStr = c.wall_level>0 ? `🧱Lv${c.wall_level} DEF${c.defense}` : '無城牆';
-
-    return `
-    <div class="castle-card ${isMine?'mine':'enemy'} ${hpPct<=0?'fallen':''} ${critical?'critical':''}">
-      ${c.has_shield?'<div class="shield-ico" title="護盾">🛡️</div>':''}
-      <div class="pts-chip">💎${c.points}</div>
-      <div class="castle-emoji">${art}</div>
-      <div class="castle-name">${c.name}</div>
-      ${isMine?'<div class="mine-tag">▶ 我的城池</div>':''}
-      <div class="hp-label">❤️ ${c.hp} / ${MAX_HP}</div>
-      <div class="hp-bar-wrap"><div class="hp-fill" style="width:${hpPct}%;background:${hc}"></div></div>
-      <div class="troops-display">${troopChips||'<span style="font-size:.62rem;color:var(--muted)">無部隊</span>'}</div>
-      <div class="wall-chip">${wallStr}</div>
-      ${c.is_banned
-        ? `<div class="banned-overlay">🚫<br>${c.ban_msg}</div>`
-        : (!isMine ? `<button class="atk-btn" onclick="openAttack('${c.user_id}','${c.name}',${c.defense},${c.hp},${hpPct})">⚔️ 攻打</button>` : '')
-      }
-    </div>`;
-  }).join('');
-}
-
-// ══ 戰役畫面 ══
-function showBattleScene(atkCastle, defCastle, troops, result) {
-  const atkPct = Math.round(atkCastle.hp/MAX_HP*100);
-  const defPct = Math.round(defCastle.hp/MAX_HP*100);
-
-  document.getElementById('bs-atk-emoji').textContent = castleEmoji(atkPct);
-  document.getElementById('bs-atk-name').textContent  = atkCastle.name;
-  document.getElementById('bs-atk-hp').textContent    = `HP ${atkCastle.hp}`;
-  document.getElementById('bs-def-emoji').textContent = castleEmoji(defPct);
-  document.getElementById('bs-def-name').textContent  = defCastle.name;
-  document.getElementById('bs-def-hp').textContent    = `HP ${defCastle.hp}`;
-
-  // 進攻部隊圖示
-  const marchEmojis = [
-    ...Array(Math.min(troops.soldier||0,4)).fill('🗡️'),
-    ...Array(Math.min(troops.elite||0,3)).fill('⚔️'),
-    ...Array(Math.min(troops.catapult||0,2)).fill('💣'),
-  ];
-  document.getElementById('bs-troops').innerHTML = marchEmojis
-    .map((e,i)=>`<span class="troop-marching" style="animation-delay:${i*0.1}s">${e}</span>`).join('');
-
-  // 傷害與結果
-  const dmgWrap = document.getElementById('bs-dmg-wrap');
-  const resTag  = document.getElementById('bs-result-tag');
-  document.getElementById('bs-label').textContent = '⚔️ 攻打中';
-
-  if (result) {
-    dmgWrap.innerHTML = `<div class="bs-dmg">-${result.damage} HP</div>`;
-    if (result.shielded) {
-      resTag.className='bs-result shielded'; resTag.textContent='🛡️ 護盾格擋！'; resTag.style.display='';
-    } else if (result.fallen) {
-      resTag.className='bs-result fallen'; resTag.textContent='💥 城池陷落！'; resTag.style.display='';
-    } else {
-      resTag.className='bs-result success'; resTag.textContent='✅ 攻擊成功'; resTag.style.display='';
-    }
-  } else {
-    dmgWrap.innerHTML=''; resTag.style.display='none';
+  // Attack banner
+  const me=_castles.find(c=>c.user_id===getMe());
+  const banner=document.getElementById('attack-banner');
+  if(me) {
+    document.getElementById('info-hp').textContent=me.hp;
+    document.getElementById('info-def').textContent=me.defense;
+    const army=me.army||{};
+    const armyTxt=[army.soldier?`🗡️${army.soldier}`:'',army.elite?`⚔️${army.elite}`:'',army.catapult?`💣${army.catapult}`:''].filter(Boolean).join(' ')||'無部隊';
+    document.getElementById('info-army').textContent=armyTxt;
+    document.getElementById('info-pts').textContent=me.points;
   }
-
-  const scene = document.getElementById('battle-scene');
-  scene.classList.add('visible');
-  clearTimeout(_battleSceneTimer);
-  _battleSceneTimer = setTimeout(()=>{
-    scene.classList.remove('visible');
-  }, result?6000:2000);
+  banner.style.display='none'; // can't easily detect attack from state alone
 }
 
-// ── 招募 ──
+function updateHeader() {
+  const me=_castles.find(c=>c.user_id===getMe());
+  if(!me) return;
+  document.getElementById('h-hp').textContent=me.hp;
+  document.getElementById('h-pts').textContent=me.points;
+  document.getElementById('h-def').textContent=me.defense;
+  document.getElementById('h-shield').style.display=me.has_shield?'inline':'none';
+  window._myArmy=me.army;
+}
+
+// ══════════════════════════════════════════════
+//  ACTIONS
+// ══════════════════════════════════════════════
+function calcDmgPreview() {
+  const s=parseInt(document.getElementById('d-s').value)||0;
+  const e=parseInt(document.getElementById('d-e').value)||0;
+  const c=parseInt(document.getElementById('d-c').value)||0;
+  const def=_atkTargetDef;
+  let dmg=0;
+  dmg+=Math.max(5,UNITS.soldier.atk -def*(1-UNITS.soldier.pierce))*s;
+  dmg+=Math.max(5,UNITS.elite.atk   -def*(1-UNITS.elite.pierce))*e;
+  dmg+=Math.max(5,UNITS.catapult.atk-def*(1-UNITS.catapult.pierce))*c;
+  document.getElementById('dmg-preview').textContent=(s+e+c>0)?`預計傷害：${Math.floor(dmg)} HP`:'';
+}
+
+async function launchAttack() {
+  if(!_atkTargetId){toast('請先選擇攻打目標','d');return;}
+  const army={
+    soldier: parseInt(document.getElementById('d-s').value)||0,
+    elite:   parseInt(document.getElementById('d-e').value)||0,
+    catapult:parseInt(document.getElementById('d-c').value)||0,
+  };
+  if(!army.soldier&&!army.elite&&!army.catapult){toast('請至少派出一隊部隊','d');return;}
+
+  // Build troop particles for animation
+  _atkParticles=[];
+  let off=-30;
+  if(army.soldier)  for(let i=0;i<Math.min(army.soldier,4);i++)  _atkParticles.push({emoji:'🗡️',ox:off+i*16,oy:(i%2)*12-6});
+  if(army.elite)    for(let i=0;i<Math.min(army.elite,3);i++)    _atkParticles.push({emoji:'⚔️',ox:off+i*16,oy:(i%2)*-12+6});
+  if(army.catapult) for(let i=0;i<Math.min(army.catapult,2);i++) _atkParticles.push({emoji:'💣',ox:off+i*18,oy:0});
+  _atkPhase='marching'; _atkPhaseTimer=Date.now();
+  renderAtkCanvas();
+
+  const r=await fetch('/api/castle/attack',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({attacker_id:getMe(),defender_id:_atkTargetId,...army})
+  }).then(x=>x.json());
+
+  _lastResult=r;
+  await loadState();
+
+  if(!r.ok){toast('❌ '+r.msg,'d');_atkPhase='idle';return;}
+  if(r.shielded)    toast('🛡️ 護盾格擋！傷害無效！');
+  else if(r.fallen) toast(`💥 城池陷落！獲得 ${r.bonus_pts} 點！`,'s');
+  else              toast(`⚔️ 造成 ${r.damage} 傷害！`,'s');
+}
+
+// Recruit
+let _recruitKey=null;
 function openRecruit(key) {
-  _recruitKey = key;
-  const u = UNIT_INFO[key];
-  const myC = _castles.find(c=>c.user_id===getMe());
-  document.getElementById('r-unit-name').textContent = u.emoji+' '+u.name;
-  document.getElementById('r-pts').textContent = (myC?.points||0)+' 點';
-  document.getElementById('r-count').value = 1;
-  rUpdate();
+  _recruitKey=key;
+  const u=UNITS[key];
+  const me=_castles.find(c=>c.user_id===getMe());
+  document.getElementById('r-unit-name').textContent=u.emoji+' '+u.name;
+  document.getElementById('r-pts').textContent=(me?.points||0)+' 點';
+  document.getElementById('r-count').value=1; rUpdate();
   document.getElementById('recruit-modal').classList.add('open');
 }
 function rAdj(d){const el=document.getElementById('r-count');el.value=Math.max(1,(parseInt(el.value)||1)+d);rUpdate();}
-function rUpdate(){const u=UNIT_INFO[_recruitKey];const n=parseInt(document.getElementById('r-count').value)||1;document.getElementById('r-cost').textContent=u.cost*n;}
-async function confirmRecruit() {
-  const n = parseInt(document.getElementById('r-count').value)||1;
-  const r = await fetch('/api/castle/recruit',{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({user_id:getMe(),unit:_recruitKey,count:n})
-  }).then(x=>x.json());
+function rUpdate(){document.getElementById('r-cost').textContent=UNITS[_recruitKey].cost*(parseInt(document.getElementById('r-count').value)||1);}
+async function confirmRecruit(){
+  const n=parseInt(document.getElementById('r-count').value)||1;
+  const r=await fetch('/api/castle/recruit',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({user_id:getMe(),unit:_recruitKey,count:n})}).then(x=>x.json());
   closeModal('recruit-modal');
-  if(!r.ok){toast('❌ '+r.msg,'danger');return;}
-  toast(`✅ 招募 ${UNIT_INFO[_recruitKey].emoji} × ${n}`,'success');
+  if(!r.ok){toast('❌ '+r.msg,'d');return;}
+  toast(`✅ 招募 ${UNITS[_recruitKey].emoji} × ${n}`,'s');
   await loadState();
 }
 
-// ── 攻擊 ──
-function openAttack(targetId, targetName, targetDef, targetHp, targetHpPct) {
-  _attackTargetId  = targetId;
-  _attackTargetDef = targetDef;
-  // 高亮目標城池
-  document.querySelectorAll('.castle-card').forEach(el=>el.classList.remove('attacking-target'));
-  const cards = document.querySelectorAll('.castle-card');
-  cards.forEach(card=>{if(card.querySelector('.castle-name')?.textContent===targetName)card.classList.add('attacking-target');});
-
-  const army = window._myArmy||{};
-  document.getElementById('atk-target-name').textContent = targetName;
-  document.getElementById('atk-hp-preview').textContent  = `目標 HP：${targetHp} ／ 防禦：${targetDef}`;
-  document.getElementById('atk-s-avail').textContent = `擁有 ${army.soldier||0} 隊`;
-  document.getElementById('atk-e-avail').textContent = `擁有 ${army.elite||0} 隊`;
-  document.getElementById('atk-c-avail').textContent = `擁有 ${army.catapult||0} 隊`;
-  document.getElementById('atk-s').value=0;
-  document.getElementById('atk-e').value=0;
-  document.getElementById('atk-c').value=0;
-  document.getElementById('atk-dmg-preview').textContent='';
-  document.getElementById('attack-modal').classList.add('open');
+async function upgradeWall(){
+  const r=await fetch('/api/castle/upgrade_wall',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({user_id:getMe()})}).then(x=>x.json());
+  if(!r.ok){toast('❌ '+r.msg,'d');return;}
+  toast(`🧱 城牆升至 Lv${r.wall_level}`,'s'); await loadState();
 }
-function updateAtkPreview() {
-  const s=parseInt(document.getElementById('atk-s').value)||0;
-  const e=parseInt(document.getElementById('atk-e').value)||0;
-  const c=parseInt(document.getElementById('atk-c').value)||0;
-  const def=_attackTargetDef;
-  let dmg=0;
-  dmg+=Math.max(5,UNIT_INFO.soldier.atk -def*(1-UNIT_INFO.soldier.pierce))*s;
-  dmg+=Math.max(5,UNIT_INFO.elite.atk   -def*(1-UNIT_INFO.elite.pierce))*e;
-  dmg+=Math.max(5,UNIT_INFO.catapult.atk-def*(1-UNIT_INFO.catapult.pierce))*c;
-  document.getElementById('atk-dmg-preview').textContent=
-    (s+e+c>0)?`預計傷害：${Math.floor(dmg)} HP`:'';
-}
-async function launchAttack() {
-  const army={
-    soldier:  parseInt(document.getElementById('atk-s').value)||0,
-    elite:    parseInt(document.getElementById('atk-e').value)||0,
-    catapult: parseInt(document.getElementById('atk-c').value)||0,
-  };
-  if(army.soldier+army.elite+army.catapult===0){toast('至少派出一隊部隊','danger');return;}
-
-  closeModal('attack-modal');
-  // 移除高亮
-  document.querySelectorAll('.castle-card').forEach(el=>el.classList.remove('attacking-target'));
-
-  const atkCastle = _castles.find(c=>c.user_id===getMe());
-  let defCastle   = _castles.find(c=>c.user_id===_attackTargetId);
-
-  // 先顯示攻打動畫（無結果）
-  if(atkCastle&&defCastle) showBattleScene(atkCastle,defCastle,army,null);
-
-  const r = await fetch('/api/castle/attack',{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({attacker_id:getMe(),defender_id:_attackTargetId,...army})
-  }).then(x=>x.json());
-
-  await loadState();
-  defCastle = _castles.find(c=>c.user_id===_attackTargetId)||defCastle;
-  const atkC2 = _castles.find(c=>c.user_id===getMe())||atkCastle;
-
-  if(!r.ok){toast('❌ '+r.msg,'danger');return;}
-  // 更新戰役畫面，顯示結果
-  showBattleScene(atkC2, defCastle, army, r);
-
-  if(r.shielded)      toast('🛡️ 護盾格擋！傷害無效！');
-  else if(r.fallen)   toast(`💥 城池陷落！獲得 ${r.bonus_pts} 點！`,'success');
-  else                toast(`⚔️ 造成 ${r.damage} 傷害！`,'success');
-}
-
-// ── 城防 ──
-async function upgradeWall() {
-  const r=await fetch('/api/castle/upgrade_wall',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:getMe()})
-  }).then(x=>x.json());
-  if(!r.ok){toast('❌ '+r.msg,'danger');return;}
-  toast(`🧱 城牆升至 Lv${r.wall_level}（DEF ${r.defense}）`,'success');
-  await loadState();
-}
-async function buyShield() {
-  const r=await fetch('/api/castle/buy_shield',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:getMe()})
-  }).then(x=>x.json());
-  if(!r.ok){toast('❌ '+r.msg,'danger');return;}
-  toast('🛡️ 護盾啟動！下次攻擊將被格擋！','success');
-  await loadState();
+async function buyShield(){
+  const r=await fetch('/api/castle/buy_shield',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({user_id:getMe()})}).then(x=>x.json());
+  if(!r.ok){toast('❌ '+r.msg,'d');return;}
+  toast('🛡️ 護盾啟動！','s'); await loadState();
 }
 
 function closeModal(id){document.getElementById(id).classList.remove('open');}
+
+function toast(msg,type=''){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className='toast'+(type?' '+type:'');
+  void t.offsetWidth; t.classList.add('show');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),3000);
+}
+
+// ══════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', async()=>{
+  document.getElementById('cw-loading').style.display='none';
+  if(!session){
+    document.getElementById('no-session').style.display='flex';
+    return;
+  }
+  document.getElementById('cw-main').style.display='contents';
+  await fetch('/api/castle/init',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({user_id:session.id||session.user_id,name:session.name})});
+  await loadState();
+  // Render loop for my castle (under-attack glow)
+  function loop(){renderMineCanvas();requestAnimationFrame(loop);}
+  loop();
+  setInterval(loadState,12000);
+});
+
+// Resize
+window.addEventListener('resize',()=>{renderMineCanvas();if(_currentTab===2)renderWorldCanvas();});
 </script>
 </body>
 </html>
