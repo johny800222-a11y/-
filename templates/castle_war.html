@@ -343,163 +343,315 @@ function switchTab(idx) {
 })();
 
 // ══════════════════════════════════════════════
-//  CASTLE CANVAS RENDERER (isometric style)
+//  中式城池 CANVAS RENDERER
 // ══════════════════════════════════════════════
-const STONE_COLORS = {
-  top:   ['#8a8a8a','#9a9a9a','#7a7a7a'],
-  wall:  ['#6b6b6b','#5a5a5a','#7a7a7a'],
-  tower: ['#505050','#606060','#454545'],
-  roof:  ['#8b1a1a','#9e2020','#7a1515'],
-  keep:  ['#4a4a70','#5a5a85','#3a3a5a'],
-  ground:['#c4a84a','#d4b85a','#b49840'],
-  gate:  '#1a1a1a',
-  sky:   '#0d0d24',
-};
-const DMG_COLORS = { top:'#c0603a',wall:'#8b3a1a',tower:'#6b2a0a',roof:'#6b1010',keep:'#3a3a5a',ground:'#9a7830',gate:'#1a1a1a',sky:'#0d0d24'};
-const FIRE_COLORS = { top:'#ef4444',wall:'#dc2626',tower:'#b91c1c',roof:'#b91c1c',keep:'#3a3a5a',ground:'#8b4513',gate:'#1a1a1a',sky:'#0d0d24'};
 
-function getScheme(hpPct) {
-  if(hpPct>0.6) return STONE_COLORS;
-  if(hpPct>0.3) return DMG_COLORS;
-  return FIRE_COLORS;
+// 繪製中式屋頂（飛簷 curved eaves）
+function drawChineseRoof(ctx, cx, baseY, w, h, mainClr, highlightClr, edgeClr) {
+  const hw = w/2;
+  // 主屋面
+  ctx.beginPath();
+  ctx.moveTo(cx, baseY - h);                          // 屋脊頂點
+  ctx.bezierCurveTo(cx+hw*0.4, baseY-h*0.6, cx+hw*0.75, baseY-h*0.15, cx+hw+h*0.45, baseY-h*0.55); // 右飛簷
+  ctx.lineTo(cx+hw*0.9, baseY);
+  ctx.lineTo(cx-hw*0.9, baseY);
+  ctx.lineTo(cx-hw-h*0.45, baseY-h*0.55);            // 左飛簷
+  ctx.bezierCurveTo(cx-hw*0.75, baseY-h*0.15, cx-hw*0.4, baseY-h*0.6, cx, baseY-h);
+  ctx.closePath();
+  const rg = ctx.createLinearGradient(cx, baseY-h, cx, baseY);
+  rg.addColorStop(0, highlightClr); rg.addColorStop(1, mainClr);
+  ctx.fillStyle = rg; ctx.fill();
+  ctx.strokeStyle = edgeClr; ctx.lineWidth = 1; ctx.stroke();
+  // 屋脊
+  ctx.fillStyle = '#d4a520';
+  ctx.beginPath(); ctx.roundRect(cx-w*0.12, baseY-h-4, w*0.24, 6, 2); ctx.fill();
+  // 瓦片橫線
+  ctx.strokeStyle = mainClr+'99'; ctx.lineWidth = .8;
+  for(let i=1; i<4; i++){
+    const py = baseY - h*i/4;
+    const pw = hw*(0.35+i*0.2);
+    ctx.beginPath(); ctx.moveTo(cx-pw, py); ctx.lineTo(cx+pw, py); ctx.stroke();
+  }
 }
 
-// Draw isometric block
-function isoBlock(ctx, ox, oy, tx, ty, tz, bw, bh, bd, scheme) {
-  const TW=36, TH=18;
-  function ts(x,y,z){ return {x:(x-y)*TW/2+ox, y:(x+y)*TH/2-z*TH+oy};}
-
-  // Top face
-  const t0=ts(tx,ty+bh,tz+bd), t1=ts(tx+bw,ty+bh,tz+bd), t2=ts(tx+bw,ty,tz+bd), t3=ts(tx,ty,tz+bd);
-  ctx.beginPath();ctx.moveTo(t0.x,t0.y);ctx.lineTo(t1.x,t1.y);ctx.lineTo(t2.x,t2.y);ctx.lineTo(t3.x,t3.y);ctx.closePath();
-  ctx.fillStyle=scheme.top[0];ctx.fill();
-  ctx.strokeStyle='#00000030';ctx.lineWidth=.8;ctx.stroke();
-
-  // Left face
-  const l0=ts(tx,ty,tz+bd),l1=ts(tx,ty+bh,tz+bd),l2=ts(tx,ty+bh,tz),l3=ts(tx,ty,tz);
-  ctx.beginPath();ctx.moveTo(l0.x,l0.y);ctx.lineTo(l1.x,l1.y);ctx.lineTo(l2.x,l2.y);ctx.lineTo(l3.x,l3.y);ctx.closePath();
-  ctx.fillStyle=scheme.wall[0];ctx.fill();ctx.stroke();
-
-  // Right face
-  const r0=ts(tx+bw,ty+bh,tz+bd),r1=ts(tx+bw,ty,tz+bd),r2=ts(tx+bw,ty,tz),r3=ts(tx+bw,ty+bh,tz);
-  ctx.beginPath();ctx.moveTo(r0.x,r0.y);ctx.lineTo(r1.x,r1.y);ctx.lineTo(r2.x,r2.y);ctx.lineTo(r3.x,r3.y);ctx.closePath();
-  ctx.fillStyle=scheme.wall[1];ctx.fill();ctx.stroke();
+// 繪製牆體
+function drawWallBody(ctx, x, y, w, h, clr) {
+  const g = ctx.createLinearGradient(x, y, x+w, y);
+  g.addColorStop(0, clr+'cc'); g.addColorStop(0.5, clr); g.addColorStop(1, clr+'bb');
+  ctx.fillStyle = g;
+  ctx.fillRect(x, y, w, h);
+  // 磚縫
+  ctx.strokeStyle = '#00000022'; ctx.lineWidth = .6;
+  for(let row=8; row<h; row+=10){
+    ctx.beginPath(); ctx.moveTo(x, y+row); ctx.lineTo(x+w, y+row); ctx.stroke();
+  }
+  for(let col=12; col<w; col+=16){
+    ctx.beginPath(); ctx.moveTo(x+col, y); ctx.lineTo(x+col, y+h); ctx.stroke();
+  }
 }
 
-// Draw full castle centered at (cx, cy) on canvas ctx
-// scale: 1.0 = normal, 0.5 = half size
+// 繪製樹木
+function drawTree(ctx, tx, ty, s, trunk, leaf) {
+  ctx.fillStyle = trunk;
+  ctx.fillRect(tx-3*s, ty, 6*s, 14*s);
+  ctx.fillStyle = leaf;
+  ctx.beginPath(); ctx.arc(tx, ty, 12*s, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(tx-8*s, ty+5*s, 8*s, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(tx+8*s, ty+5*s, 8*s, 0, Math.PI*2); ctx.fill();
+}
+
+// ── 主城池繪製函數（中式風格）──
+// scale 1.0 = 全尺寸（我的城池）, 0.55 = 小尺寸（地圖/攻打視角）
 function drawCastle(ctx, cx, cy, scale, hpPct, label='', isMe=false, underAttack=false) {
   const s = scale;
-  const TW = 36*s, TH = 18*s;
-  const oy = cy + 4*TH; // center ground at cy
+  const t = Date.now();
 
-  function ts(x,y,z){ return {x:(x-y)*TW/2+cx, y:(x+y)*TH/2-z*TH+oy};}
-  function face(pts, color, stroke='#00000030') {
-    ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
-    for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x,pts[i].y);
-    ctx.closePath(); ctx.fillStyle=color; ctx.fill();
-    if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=.7;ctx.stroke();}
+  // 顏色主題（依HP）
+  const isHealthy = hpPct > 0.6;
+  const isCritical = hpPct <= 0.3;
+  const roofMain  = isHealthy ? '#2d6b2d' : isCritical ? '#7a1010' : '#7a5010';
+  const roofHigh  = isHealthy ? '#3a8f3a' : isCritical ? '#aa2020' : '#aa7020';
+  const roofEdge  = isHealthy ? '#1a4a1a' : isCritical ? '#550a0a' : '#553510';
+  const wallClr   = isHealthy ? '#9b3b1a' : isCritical ? '#5a1010' : '#7a4010';
+  const wallLight = isHealthy ? '#b55030' : isCritical ? '#7a2020' : '#9a6020';
+  const stoneClr  = isHealthy ? '#9a8a6a' : isCritical ? '#5a3a2a' : '#7a6040';
+  const goldClr   = '#d4a520';
+  const pillarClr = isHealthy ? '#8b2a1a' : isCritical ? '#4a0808' : '#6a3808';
+
+  // 城池繪製起始 Y（底部對齊 cy）
+  const BY = cy;  // 底部
+
+  // ── 地面陰影 ──
+  const shd = ctx.createRadialGradient(cx, BY+8*s, 0, cx, BY+8*s, 90*s);
+  shd.addColorStop(0, '#00000055'); shd.addColorStop(1, 'transparent');
+  ctx.fillStyle = shd; ctx.beginPath(); ctx.ellipse(cx, BY+8*s, 85*s, 18*s, 0, 0, Math.PI*2); ctx.fill();
+
+  // ── 後方山丘/樹林輪廓 ──
+  ctx.fillStyle = isHealthy ? '#1a3a10' : '#2a2010';
+  ctx.beginPath();
+  ctx.moveTo(cx-110*s, BY-10*s);
+  ctx.bezierCurveTo(cx-80*s, BY-55*s, cx-40*s, BY-45*s, cx, BY-50*s);
+  ctx.bezierCurveTo(cx+40*s, BY-45*s, cx+80*s, BY-55*s, cx+110*s, BY-10*s);
+  ctx.closePath(); ctx.fill();
+
+  // 樹木（左右兩側）
+  const leafClr = isHealthy ? '#1e5210' : isCritical ? '#3a2008' : '#3a3808';
+  const trunkC  = '#5a3a10';
+  drawTree(ctx, cx-88*s, BY-28*s, s*0.7, trunkC, leafClr);
+  drawTree(ctx, cx+88*s, BY-28*s, s*0.7, trunkC, leafClr);
+  drawTree(ctx, cx-72*s, BY-15*s, s*0.55, trunkC, leafClr);
+  drawTree(ctx, cx+72*s, BY-15*s, s*0.55, trunkC, leafClr);
+
+  // ── 底部平台（基座）──
+  const platW = 100*s, platH = 16*s;
+  const platX = cx-platW/2, platY = BY-platH;
+  ctx.fillStyle = stoneClr;
+  ctx.fillRect(platX, platY, platW, platH);
+  ctx.fillStyle = '#ffffff15';
+  ctx.fillRect(platX, platY, platW, 4);
+  // 台階
+  ctx.fillStyle = stoneClr+'cc';
+  ctx.fillRect(cx-18*s, platY+platH, 36*s, 6*s);
+  ctx.fillRect(cx-12*s, platY+platH+6*s, 24*s, 5*s);
+
+  // ── 外城牆 ──
+  const wallW=90*s, wallH=34*s, wallY=platY-wallH;
+  drawWallBody(ctx, cx-wallW/2, wallY, wallW, wallH, stoneClr);
+  // 城牆頂部（雉堞）
+  ctx.fillStyle = stoneClr;
+  for(let bx=cx-wallW/2; bx<cx+wallW/2-6*s; bx+=10*s) {
+    ctx.fillRect(bx, wallY-8*s, 6*s, 9*s);
   }
-  function block(tx,ty,tz,bw,bh,bd, top,left,right){
-    face([ts(tx,ty+bh,tz+bd),ts(tx+bw,ty+bh,tz+bd),ts(tx+bw,ty,tz+bd),ts(tx,ty,tz+bd)], top);
-    face([ts(tx,ty,tz+bd),ts(tx,ty+bh,tz+bd),ts(tx,ty+bh,tz),ts(tx,ty,tz)], left);
-    face([ts(tx+bw,ty+bh,tz+bd),ts(tx+bw,ty,tz+bd),ts(tx+bw,ty,tz),ts(tx+bw,ty+bh,tz)], right);
+  // 城牆頂線
+  ctx.fillStyle = '#ffffff18'; ctx.fillRect(cx-wallW/2, wallY, wallW, 3);
+
+  // ── 城門樓（正中、高出城牆）──
+  const gtW=36*s, gtH=42*s, gtX=cx-gtW/2, gtY=wallY-gtH;
+  drawWallBody(ctx, gtX, gtY, gtW, gtH, wallClr);
+  // 門樓柱子
+  ctx.fillStyle = pillarClr;
+  ctx.fillRect(gtX+3*s, gtY, 5*s, gtH);
+  ctx.fillRect(gtX+gtW-8*s, gtY, 5*s, gtH);
+  // 窗格
+  ctx.strokeStyle = goldClr+'88'; ctx.lineWidth = 1.2;
+  for(let wi=0;wi<3;wi++){
+    const wx=gtX+8*s+wi*8*s, wy=gtY+8*s;
+    ctx.strokeRect(wx, wy, 5*s, 8*s);
+    ctx.beginPath(); ctx.moveTo(wx+2.5*s,wy); ctx.lineTo(wx+2.5*s,wy+8*s); ctx.stroke();
+  }
+  // 門洞（拱門）
+  ctx.fillStyle = '#10080288';
+  ctx.beginPath();
+  ctx.moveTo(cx-10*s, BY-platH);
+  ctx.lineTo(cx-10*s, wallY+10*s);
+  ctx.arc(cx, wallY+10*s, 10*s, Math.PI, 0);
+  ctx.lineTo(cx+10*s, BY-platH);
+  ctx.closePath(); ctx.fill();
+  // 門洞金邊
+  ctx.strokeStyle = goldClr; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.arc(cx, wallY+10*s, 10*s, Math.PI, 0); ctx.stroke();
+  // 門樓屋頂
+  drawChineseRoof(ctx, cx, gtY, gtW*1.5, 16*s, roofMain, roofHigh, roofEdge);
+  // 門樓角樓
+  ctx.fillStyle = wallClr;
+  ctx.fillRect(gtX-10*s, gtY+gtH*0.4, 12*s, gtH*0.6);
+  ctx.fillRect(gtX+gtW-2*s, gtY+gtH*0.4, 12*s, gtH*0.6);
+  drawChineseRoof(ctx, gtX-4*s,  gtY+gtH*0.4, 22*s, 10*s, roofMain, roofHigh, roofEdge);
+  drawChineseRoof(ctx, gtX+gtW+6*s, gtY+gtH*0.4, 22*s, 10*s, roofMain, roofHigh, roofEdge);
+
+  // ── 後方內殿（城牆後可見頂部）──
+  const innW=50*s, innH=28*s, innX=cx-innW/2, innY=wallY-innH-4*s;
+  drawWallBody(ctx, innX, innY, innW, innH, wallLight);
+  ctx.fillStyle=pillarClr;
+  ctx.fillRect(innX+3*s,innY,4*s,innH); ctx.fillRect(innX+innW-7*s,innY,4*s,innH);
+  ctx.fillRect(innX+innW/2-2*s,innY,4*s,innH);
+  drawChineseRoof(ctx, cx, innY, innW*1.6, 20*s, roofMain, roofHigh, roofEdge);
+
+  // ── 中央主塔（最高）──
+  const twrW=22*s, twrH=56*s, twrX=cx-twrW/2, twrY=innY-twrH;
+  drawWallBody(ctx, twrX, twrY, twrW, twrH, wallClr);
+  ctx.fillStyle=pillarClr;
+  ctx.fillRect(twrX+2*s,twrY,3*s,twrH); ctx.fillRect(twrX+twrW-5*s,twrY,3*s,twrH);
+  // 三層屋簷
+  drawChineseRoof(ctx, cx, twrY+twrH*0.65, twrW*2.2, 13*s, roofMain, roofHigh, roofEdge);
+  drawChineseRoof(ctx, cx, twrY+twrH*0.38, twrW*1.7, 11*s, roofMain, roofHigh, roofEdge);
+  drawChineseRoof(ctx, cx, twrY+twrH*0.12, twrW*1.2, 9*s,  roofMain, roofHigh, roofEdge);
+  // 塔頂尖
+  ctx.fillStyle = goldClr;
+  ctx.beginPath(); ctx.moveTo(cx, twrY-10*s); ctx.lineTo(cx-4*s,twrY); ctx.lineTo(cx+4*s,twrY); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = goldClr; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(cx, twrY-10*s); ctx.lineTo(cx, twrY-18*s); ctx.stroke();
+  // 旗幟
+  const flagClr = isMe ? '#6c63ff' : '#cc1111';
+  ctx.fillStyle = flagClr;
+  ctx.beginPath(); ctx.moveTo(cx,twrY-18*s); ctx.lineTo(cx+14*s,twrY-13*s); ctx.lineTo(cx,twrY-8*s); ctx.closePath(); ctx.fill();
+  if(isMe) {
+    ctx.font=`bold ${7*s}px -apple-system,sans-serif`;
+    ctx.textAlign='center'; ctx.fillStyle='#fff';
+    ctx.fillText('我', cx+5*s, twrY-11*s);
   }
 
-  const sc = getScheme(hpPct);
-  const gclr = sc.ground;
-  const tclr = [sc.top[0], sc.wall[0], sc.wall[1]];
-  const wclr = [sc.wall[0], sc.wall[1], '#3a3a3a'];
-  const twrclr = [sc.tower[0], sc.tower[1], sc.tower[2]];
-  const keepTop = [sc.keep[0]||'#4a4a70', sc.keep[1]||'#5a5a85', sc.keep[2]||'#3a3a5a'];
-  const roofClr = [sc.roof[0], sc.roof[1], sc.roof[2]];
+  // ── 城牆兩側角樓 ──
+  ctx.fillStyle = stoneClr;
+  ctx.fillRect(cx-wallW/2-10*s, wallY-22*s, 14*s, wallH+22*s);
+  ctx.fillRect(cx+wallW/2-4*s,  wallY-22*s, 14*s, wallH+22*s);
+  drawChineseRoof(ctx, cx-wallW/2+(-3*s), wallY-22*s, 24*s, 11*s, roofMain, roofHigh, roofEdge);
+  drawChineseRoof(ctx, cx+wallW/2+3*s,    wallY-22*s, 24*s, 11*s, roofMain, roofHigh, roofEdge);
 
-  // ── Ground ──
-  block(0,0,0, 10,10,.5, gclr[0],gclr[2],gclr[1]);
-  // inner courtyard
-  block(2,2,.5, 6,6,.2, '#d4c060','#b8a040','#c4b050');
-
-  // ── Outer walls ──
-  // Back-left wall (along x axis, y=0)
-  block(0,0,.5, 10,1.5,2, ...tclr);
-  // Back-right wall (along y axis, x=0)
-  block(0,0,.5, 1.5,10,2, ...tclr);
-  // Front-left wall (y=8.5)
-  block(1.5,8.5,.5, 2.5,1.5,2, ...wclr);
-  block(6,8.5,.5, 2.5,1.5,2, ...wclr);
-  // Front-right wall (x=8.5)
-  block(8.5,1.5,.5, 1.5,7,2, ...tclr);
-  // Gate gap area (x=1.5-6, y=8.5-10) - lower wall = gate
-  block(1.5,8.5,.5, 4.5,1.5,1.2, sc.gate,sc.gate,sc.gate);
-
-  // ── Corner towers ──
-  block(0,0,.5,  1.5,1.5,3.5, ...twrclr);  // BL (back)
-  block(8.5,0,.5,1.5,1.5,3.5, ...twrclr);  // BR (back-right)
-  block(0,8.5,.5,1.5,1.5,3.5, ...twrclr);  // FL (front-left)
-  block(8.5,8.5,.5,1.5,1.5,3.5,...twrclr); // FR (front)
-
-  // Tower roofs (pyramidesque - just caps)
-  block(0,0,4,    1.5,1.5,.8, ...roofClr);
-  block(8.5,0,4,  1.5,1.5,.8, ...roofClr);
-  block(0,8.5,4,  1.5,1.5,.8, ...roofClr);
-  block(8.5,8.5,4,1.5,1.5,.8, ...roofClr);
-
-  // ── Keep (center) ──
-  block(3.5,3.5,.7, 3,3,4.5, ...keepTop);
-  // Keep roof
-  block(3.5,3.5,5.2, 3,3,.8, ...roofClr);
-
-  // Flag pole on keep
-  const flagBase = ts(5,5,6);
-  ctx.beginPath();ctx.moveTo(flagBase.x,flagBase.y);ctx.lineTo(flagBase.x,flagBase.y-22*s);
-  ctx.strokeStyle='#888';ctx.lineWidth=1.5*s;ctx.stroke();
-  // Flag
-  const flagT=ts(5,5,6); flagT.y-=22*s;
-  const flagColor = isMe ? '#6c63ff' : '#cc2222';
-  ctx.fillStyle=flagColor;
-  ctx.beginPath();ctx.moveTo(flagT.x,flagT.y);ctx.lineTo(flagT.x+14*s,flagT.y+5*s);ctx.lineTo(flagT.x,flagT.y+10*s);ctx.closePath();ctx.fill();
-
-  // ── Attack effect (red flicker) ──
+  // ── 被攻打特效 ──
   if(underAttack) {
-    const t = Date.now()/400;
+    const pulse = 0.18 + 0.14*Math.sin(t/200);
     ctx.save();
-    ctx.globalAlpha=0.15+0.12*Math.sin(t);
-    ctx.fillStyle='#ff2200';
-    const g=ts(5,5,0);
-    const grd=ctx.createRadialGradient(g.x,g.y,0,g.x,g.y,80*s);
-    grd.addColorStop(0,'#ff2200');grd.addColorStop(1,'transparent');
-    ctx.fillStyle=grd;
-    ctx.fillRect(g.x-100*s,g.y-100*s,200*s,200*s);
+    ctx.globalAlpha = pulse;
+    const ug = ctx.createRadialGradient(cx,twrY+twrH/2,0,cx,twrY+twrH/2,70*s);
+    ug.addColorStop(0,'#ff4400'); ug.addColorStop(1,'transparent');
+    ctx.fillStyle = ug; ctx.fillRect(cx-80*s,twrY-20*s,160*s,BY-twrY+20*s);
+    ctx.restore();
+    // 火焰粒子
+    const np = Math.floor(3+4*Math.random());
+    ctx.save();
+    for(let i=0;i<np;i++){
+      const fx=cx+(-40+Math.random()*80)*s;
+      const fy=twrY+Math.random()*twrH;
+      const fr=3*s+Math.random()*5*s;
+      const fg=ctx.createRadialGradient(fx,fy,0,fx,fy,fr);
+      fg.addColorStop(0,'#fff8b0');fg.addColorStop(0.4,'#ff8800');fg.addColorStop(1,'transparent');
+      ctx.fillStyle=fg; ctx.globalAlpha=0.6+Math.random()*0.4;
+      ctx.beginPath();ctx.arc(fx,fy,fr,0,Math.PI*2);ctx.fill();
+    }
     ctx.restore();
   }
 
-  // ── HP bar ──
-  const barY = ts(5,10,0).y + 10*s;
-  const barW = 80*s; const barH = 7*s;
-  const barX = cx - barW/2;
-  ctx.fillStyle='#00000060';ctx.beginPath();ctx.roundRect(barX,barY,barW,barH,3);ctx.fill();
-  const hpW = Math.max(0,barW*hpPct);
-  const hpC = hpPct>0.6?'#4cde80':hpPct>0.3?'#f5c842':'#ff4d4d';
+  // ── HP 血條 ──
+  const barW=80*s, barH=7*s, barX=cx-barW/2, barY=BY+14*s;
+  ctx.fillStyle='#00000070';ctx.beginPath();ctx.roundRect(barX,barY,barW,barH,3);ctx.fill();
+  const hpW=Math.max(0,barW*hpPct);
+  const hpC=hpPct>0.6?'#4cde80':hpPct>0.3?'#f5c842':'#ff4d4d';
   if(hpW>0){ctx.fillStyle=hpC;ctx.beginPath();ctx.roundRect(barX,barY,hpW,barH,3);ctx.fill();}
+  // 血條亮邊
+  ctx.strokeStyle='#ffffff30';ctx.lineWidth=.8;ctx.beginPath();ctx.roundRect(barX,barY,barW,barH,3);ctx.stroke();
 
-  // ── Label ──
+  // ── 名稱標籤 ──
   if(label){
-    ctx.font=`bold ${Math.max(10,12*s)}px -apple-system,sans-serif`;
-    ctx.textAlign='center';
-    ctx.fillStyle=isMe?'#a78bfa':'#f0f0ff';
-    ctx.fillText(label, cx, barY+barH+14*s);
+    const lbg = isMe ? '#1a0a4a' : '#1a0808';
+    const lbc = isMe ? '#a78bfa' : '#f0c0c0';
+    const lw=Math.max(60,label.length*10+20)*s, lh=18*s, lx=cx-lw/2, ly=barY+barH+4*s;
+    ctx.fillStyle=lbg+'cc';ctx.beginPath();ctx.roundRect(lx,ly,lw,lh,4);ctx.fill();
+    ctx.strokeStyle=isMe?'#6c63ff55':'#cc111133';ctx.lineWidth=1;ctx.stroke();
+    ctx.font=`bold ${Math.max(9,11*s)}px -apple-system,sans-serif`;
+    ctx.textAlign='center';ctx.fillStyle=lbc;
+    ctx.fillText(label,cx,ly+lh-5*s);
   }
 
-  // ── HP text ──
-  const hpVal = Math.round(hpPct*MAX_HP);
+  // HP 數字
   ctx.font=`${Math.max(8,9*s)}px -apple-system,sans-serif`;
   ctx.textAlign='center';ctx.fillStyle='#ccc';
-  ctx.fillText(`${hpVal}/500`, cx, barY+barH+4*s+1);
+  ctx.fillText(`${Math.round(hpPct*MAX_HP)}/500`,cx,barY+barH+3*s);
+}
+
+// 攻打動畫粒子（飛彈）
+let _missiles = [];
+function spawnMissile(fromX, fromY, toX, toY) {
+  _missiles.push({x:fromX,y:fromY,tx:toX,ty:toY,t:0,done:false,trail:[]});
+}
+function updateMissiles(ctx) {
+  _missiles = _missiles.filter(m=>!m.done);
+  _missiles.forEach(m=>{
+    m.t = Math.min(1, m.t+0.03);
+    const ease = m.t<0.5 ? 2*m.t*m.t : -1+(4-2*m.t)*m.t;
+    const arc = Math.sin(m.t*Math.PI)*-60;
+    m.x = m.tx===m.x ? m.x : m.tx+(m.tx-m.tx)*(1-ease); // lerp
+    const lx = m.tx+(m.tx-m.tx); // recalc
+    const px = m['ox']||m.x; const py = m['oy']||m.y;
+    if(!m.ox){m.ox=m.x;m.oy=m.y;}
+    const nx = m.ox+(m.tx-m.ox)*ease;
+    const ny = m.oy+(m.ty-m.oy)*ease + arc;
+    m.trail.push({x:nx,y:ny});
+    if(m.trail.length>8) m.trail.shift();
+    m.cx=nx; m.cy=ny;
+    if(m.t>=1) m.done=true;
+    // Trail
+    for(let i=0;i<m.trail.length-1;i++){
+      const a=(i+1)/m.trail.length;
+      ctx.strokeStyle=`rgba(255,180,0,${a*0.6})`;
+      ctx.lineWidth=3*a;
+      ctx.beginPath();ctx.moveTo(m.trail[i].x,m.trail[i].y);ctx.lineTo(m.trail[i+1].x,m.trail[i+1].y);ctx.stroke();
+    }
+    // 彈頭
+    const hg=ctx.createRadialGradient(nx,ny,0,nx,ny,8);
+    hg.addColorStop(0,'#fff8a0');hg.addColorStop(0.4,'#ff8800');hg.addColorStop(1,'transparent');
+    ctx.fillStyle=hg;ctx.beginPath();ctx.arc(nx,ny,8,0,Math.PI*2);ctx.fill();
+    // 撞擊爆炸
+    if(m.done){
+      for(let p=0;p<8;p++){
+        const angle=p/8*Math.PI*2, r=12+Math.random()*20;
+        const ex=nx+Math.cos(angle)*r, ey=ny+Math.sin(angle)*r;
+        const eg=ctx.createRadialGradient(ex,ey,0,ex,ey,8);
+        eg.addColorStop(0,'#ffff88');eg.addColorStop(0.5,'#ff4400');eg.addColorStop(1,'transparent');
+        ctx.fillStyle=eg;ctx.beginPath();ctx.arc(ex,ey,8,0,Math.PI*2);ctx.fill();
+      }
+    }
+  });
 }
 
 // ══════════════════════════════════════════════
 //  RENDER: MY CASTLE
 // ══════════════════════════════════════════════
+function drawSkyBg(ctx, w, h, hpPct) {
+  // 天空漸層
+  const isHealthy=hpPct>0.6, isCritical=hpPct<=0.3;
+  const sky=ctx.createLinearGradient(0,0,0,h*0.6);
+  if(isHealthy){ sky.addColorStop(0,'#0a1a3a');sky.addColorStop(1,'#1a3a20'); }
+  else if(isCritical){ sky.addColorStop(0,'#1a0808');sky.addColorStop(1,'#2a1208'); }
+  else { sky.addColorStop(0,'#1a1008');sky.addColorStop(1,'#2a1a08'); }
+  ctx.fillStyle=sky; ctx.fillRect(0,0,w,h);
+  // 地面
+  const ground=ctx.createLinearGradient(0,h*0.6,0,h);
+  if(isHealthy){ ground.addColorStop(0,'#1a3a10');ground.addColorStop(1,'#0a1a08'); }
+  else { ground.addColorStop(0,'#2a1a08');ground.addColorStop(1,'#1a0e04'); }
+  ctx.fillStyle=ground; ctx.fillRect(0,h*0.6,w,h*0.4);
+}
+
 function renderMineCanvas() {
   const canv = document.getElementById('canvas-mine');
   const wrap = canv.parentElement;
@@ -508,17 +660,13 @@ function renderMineCanvas() {
   const ctx = canv.getContext('2d');
   ctx.clearRect(0,0,canv.width,canv.height);
 
-  // Sky gradient
-  const sky = ctx.createLinearGradient(0,0,0,canv.height);
-  sky.addColorStop(0,'#0a0a20');sky.addColorStop(1,'#1a1020');
-  ctx.fillStyle=sky;ctx.fillRect(0,0,canv.width,canv.height);
-
   const me = _castles.find(c=>c.user_id===getMe());
   if(!me) return;
   const hpPct = me.hp/MAX_HP;
   const ua = _castles.some(c=>c.user_id!==getMe() && c._last_atk_target===getMe());
+  drawSkyBg(ctx, canv.width, canv.height, hpPct);
 
-  drawCastle(ctx, canv.width/2, canv.height*0.42, 1.0, hpPct, me.name, true, ua);
+  drawCastle(ctx, canv.width/2, canv.height*0.72, 1.0, hpPct, me.name, true, ua);
 }
 
 // ══════════════════════════════════════════════
@@ -539,68 +687,86 @@ function renderAtkCanvas() {
   const ctx = canv.getContext('2d');
 
   ctx.clearRect(0,0,canv.width,canv.height);
-  const sky=ctx.createLinearGradient(0,0,0,canv.height);
-  sky.addColorStop(0,'#0d0520');sky.addColorStop(1,'#1a0508');
-  ctx.fillStyle=sky;ctx.fillRect(0,0,canv.width,canv.height);
 
   const me   = _castles.find(c=>c.user_id===getMe());
   const them = _castles.find(c=>c.user_id===_atkTargetId);
   if(!me||!them) return;
 
   const W=canv.width,H=canv.height;
-  const myCX=W*0.22, themCX=W*0.78, castleY=H*0.5;
+  const myCX=W*0.22, themCX=W*0.78, castleY=H*0.76;
 
-  drawCastle(ctx, myCX, castleY, 0.6, me.hp/MAX_HP, me.name, true, false);
-  drawCastle(ctx, themCX, castleY, 0.6, them.hp/MAX_HP, them.name, false, _atkPhase==='marching');
+  // 各自背景
+  drawSkyBg(ctx, W/2, H, me.hp/MAX_HP);
+  ctx.save(); ctx.translate(W/2,0);
+  drawSkyBg(ctx, W/2, H, them.hp/MAX_HP);
+  ctx.restore();
 
-  // Draw troops marching
+  drawCastle(ctx, myCX, castleY, 0.55, me.hp/MAX_HP, me.name, true, false);
+  drawCastle(ctx, themCX, castleY, 0.55, them.hp/MAX_HP, them.name, false, _atkPhase==='marching');
+
+  // ── 飛彈動畫 ──
+  updateMissiles(ctx);
+
   if(_atkPhase==='marching') {
-    const prog = Math.min(1, (Date.now()-_atkPhaseTimer)/1800);
-    _atkParticles.forEach(p => {
-      const px = myCX + (themCX - myCX - 60) * prog + p.ox;
-      const py = castleY + p.oy - Math.sin(prog*Math.PI)*30;
-      ctx.save();
-      ctx.font=`${20}px serif`;
-      ctx.textAlign='center';
-      ctx.globalAlpha=Math.min(1,prog*4);
-      ctx.fillText(p.emoji, px, py);
-      ctx.restore();
-    });
-    if(prog>=1) { _atkPhase='impact'; _impactX=themCX; _impactY=castleY-30; }
+    const now=Date.now();
+    if(now-_atkPhaseTimer>2200) {
+      _atkPhase='impact'; _impactX=themCX; _impactY=castleY-60;
+    }
     requestAnimationFrame(()=>{ if(_currentTab===1) renderAtkCanvas(); });
   }
 
   // Impact effect
   if(_atkPhase==='impact') {
-    const age = Date.now()-_atkPhaseTimer-1800;
-    const r = Math.min(60, age*0.18);
-    const alpha = Math.max(0, 1-age/600);
+    const age = Date.now()-_atkPhaseTimer-2200;
+    const r = Math.min(70, age*0.2);
+    const alpha = Math.max(0, 1-age/800);
+    // 爆炸外環
     const grd=ctx.createRadialGradient(_impactX,_impactY,0,_impactX,_impactY,r);
-    grd.addColorStop(0,`rgba(255,200,0,${alpha})`);
-    grd.addColorStop(0.5,`rgba(255,60,0,${alpha*0.6})`);
+    grd.addColorStop(0,`rgba(255,255,180,${alpha})`);
+    grd.addColorStop(0.3,`rgba(255,120,0,${alpha*0.8})`);
+    grd.addColorStop(0.7,`rgba(200,30,0,${alpha*0.4})`);
     grd.addColorStop(1,'rgba(0,0,0,0)');
     ctx.fillStyle=grd;ctx.fillRect(_impactX-r,_impactY-r,r*2,r*2);
-
-    // Damage number
+    // 爆炸粒子射線
+    if(age<400) {
+      for(let i=0;i<8;i++){
+        const ang=i/8*Math.PI*2, len=r*0.9;
+        ctx.strokeStyle=`rgba(255,200,50,${alpha*0.7})`;
+        ctx.lineWidth=2;
+        ctx.beginPath();ctx.moveTo(_impactX,_impactY);
+        ctx.lineTo(_impactX+Math.cos(ang)*len,_impactY+Math.sin(ang)*len);
+        ctx.stroke();
+      }
+    }
+    // 傷害數字
     if(_lastResult) {
+      const ny = _impactY - 20 - age*0.07;
       ctx.save();
-      const ny = _impactY - 30 - age*0.06;
-      ctx.globalAlpha=Math.max(0,1-age/700);
-      ctx.font=`bold 24px -apple-system,sans-serif`;
+      ctx.globalAlpha=Math.max(0,1-age/800);
+      ctx.font=`bold 26px -apple-system,sans-serif`;
       ctx.textAlign='center';
-      ctx.fillStyle=_lastResult.fallen?'#ff8800':_lastResult.shielded?'#a78bfa':'#ff4444';
-      ctx.fillText(`-${_lastResult.damage}HP`, _impactX, ny);
+      ctx.shadowColor=_lastResult.fallen?'#ff8800':_lastResult.shielded?'#a78bfa':'#ff0000';
+      ctx.shadowBlur=12;
+      ctx.fillStyle=_lastResult.fallen?'#ffaa00':_lastResult.shielded?'#c8a0ff':'#ff6060';
+      ctx.fillText(_lastResult.shielded?'🛡️格擋':`-${_lastResult.damage} HP`, _impactX, ny);
+      if(_lastResult.fallen){
+        ctx.fillStyle='#ffaa00';
+        ctx.fillText('💥 城池陷落！', _impactX, ny-30);
+      }
       ctx.restore();
     }
-
-    if(alpha<=0) { _atkPhase='done'; _lastResult=null; }
+    if(alpha<=0){ _atkPhase='done'; _lastResult=null; }
     else requestAnimationFrame(()=>{ if(_currentTab===1) renderAtkCanvas(); });
   }
 
-  // "VS" divider
-  ctx.font='bold 18px -apple-system,sans-serif';
-  ctx.textAlign='center';ctx.fillStyle='#ff444488';
-  ctx.fillText('VS', W/2, castleY-20);
+  // "VS" 標誌
+  ctx.save();
+  ctx.font='bold 20px -apple-system,sans-serif';
+  ctx.textAlign='center';
+  ctx.fillStyle='#ff8844cc';
+  ctx.shadowColor='#ff4400'; ctx.shadowBlur=10;
+  ctx.fillText('⚔️', W/2, H*0.35);
+  ctx.restore();
 }
 
 // ══════════════════════════════════════════════
@@ -842,12 +1008,15 @@ async function launchAttack() {
   };
   if(!army.soldier&&!army.elite&&!army.catapult){toast('請至少派出一隊部隊','d');return;}
 
-  // Build troop particles for animation
-  _atkParticles=[];
-  let off=-30;
-  if(army.soldier)  for(let i=0;i<Math.min(army.soldier,4);i++)  _atkParticles.push({emoji:'🗡️',ox:off+i*16,oy:(i%2)*12-6});
-  if(army.elite)    for(let i=0;i<Math.min(army.elite,3);i++)    _atkParticles.push({emoji:'⚔️',ox:off+i*16,oy:(i%2)*-12+6});
-  if(army.catapult) for(let i=0;i<Math.min(army.catapult,2);i++) _atkParticles.push({emoji:'💣',ox:off+i*18,oy:0});
+  // 飛彈動畫
+  _missiles=[];
+  const canvAtk=document.getElementById('canvas-atk');
+  const W=canvAtk.clientWidth||300, H=canvAtk.clientHeight||200;
+  const myCX=W*0.22, themCX=W*0.78, castleY=H*0.76;
+  const shots=(army.soldier||0)+(army.elite||0)+(army.catapult||0)*2;
+  for(let i=0;i<Math.min(shots,6);i++){
+    setTimeout(()=>spawnMissile(myCX, castleY-50, themCX+(Math.random()-0.5)*30, castleY-60), i*200);
+  }
   _atkPhase='marching'; _atkPhaseTimer=Date.now();
   renderAtkCanvas();
 
