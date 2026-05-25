@@ -866,7 +866,6 @@ async function launchAttack() {
 }
 
 // Recruit
-let _recruitKey=null;
 function openRecruit(key) {
   if(_cdSecs[key]>0){ toast(`⏳ 冷卻中（剩 ${fmtCd(_cdSecs[key])}）`,'d'); return; }
   _recruitKey=key;
