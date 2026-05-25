@@ -940,7 +940,8 @@ scheduler.add_job(_faker_noon_report,     "cron", day_of_week="mon-sat", hour=12
 # 22:00 傳送 539 中獎人數分析報告
 scheduler.add_job(_prize_report_routine,  "cron", day_of_week="mon-sat", hour=22, minute=0)
 # 每週一 00:05 快照週冠軍排行
-scheduler.add_job(virtual_bingo.save_weekly_champion, "cron", day_of_week="mon", hour=0, minute=5)
+scheduler.add_job(virtual_bingo.save_weekly_champion,      "cron", day_of_week="mon", hour=0, minute=5)
+scheduler.add_job(virtual_bingo.weekly_reset_all_balances, "cron", day_of_week="mon", hour=7, minute=0)
 scheduler.start()
 
 # 啟動時若 Bingo 無資料則自動初始化（背景執行，不阻塞啟動）

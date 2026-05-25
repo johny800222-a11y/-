@@ -236,6 +236,22 @@ def reset_user_balance(user_id: str, amount: int = STARTING_BALANCE) -> dict:
     return {"ok": False, "msg": "帳號不存在"}
 
 
+def weekly_reset_all_balances() -> dict:
+    """
+    每週一 07:00 重置所有玩家本金為 NT$10,000
+    同時清零 total_bet / total_win，方便新週重新計算損益
+    """
+    data = _load_users()
+    reset_at = _tw_now()
+    for u in data["users"]:
+        u["balance"]   = STARTING_BALANCE
+        u["total_bet"] = 0
+        u["total_win"] = 0
+        u["reset_at"]  = reset_at
+    _save_users(data)
+    return {"ok": True, "reset_at": reset_at, "count": len(data["users"])}
+
+
 def list_users() -> list:
     data = _load_users()
     return [{k: v for k, v in u.items() if k != "password_hash"} for u in data["users"]]
