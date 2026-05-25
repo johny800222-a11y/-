@@ -15,6 +15,7 @@ import bingo_learner
 import prize_tracker
 import backup_manager
 import virtual_bingo
+import castle_war
 
 app = Flask(__name__)
 
@@ -463,17 +464,25 @@ def api_virtual_stats():
 @app.route("/api/virtual/bet", methods=["POST"])
 def api_virtual_bet():
     data = request.get_json() or {}
+    uid          = data.get("user_id","")
+    repeat_draws = int(data.get("repeat_draws", 1))
     result = virtual_bingo.place_bet(
-        user_id        = data.get("user_id",""),
+        user_id        = uid,
         bet_type       = data.get("bet_type","直玩"),
         pick_count     = int(data.get("pick_count", 5)),
         balls          = data.get("balls", []),
         dan_balls      = data.get("dan_balls", []),
         tuo_balls      = data.get("tuo_balls", []),
         multiplier     = int(data.get("multiplier", 1)),
-        repeat_draws   = int(data.get("repeat_draws", 1)),
+        repeat_draws   = repeat_draws,
         current_period = str(data.get("current_period", "")),
     )
+    # 下注成功 → 發放城池點數
+    if result.get("ok"):
+        user = virtual_bingo.get_user(uid)
+        name = user["name"] if user else uid
+        castle_war.earn_points(uid, name, repeat_draws)
+        result["castle_points_earned"] = castle_war.calc_bet_points(repeat_draws)
     return jsonify(result)
 
 
@@ -637,7 +646,42 @@ def api_virtual_save_weekly_champion():
 def api_virtual_reset_all_balances():
     """手動重置所有玩家本金（管理員用）"""
     result = virtual_bingo.weekly_reset_all_balances()
+    castle_war.weekly_reset()   # 同步重置城池
     return jsonify(result)
+
+
+# ── 城池大戰 API ──────────────────────────────────────────────────────────────
+@app.route("/api/castle/state")
+def api_castle_state():
+    return jsonify({"ok": True, "castles": castle_war.get_all_castles(),
+                    "log": castle_war.get_battle_log(20)})
+
+@app.route("/api/castle/recruit", methods=["POST"])
+def api_castle_recruit():
+    d = request.get_json() or {}
+    return jsonify(castle_war.recruit(d.get("user_id",""), d.get("unit",""), int(d.get("count",1))))
+
+@app.route("/api/castle/upgrade_wall", methods=["POST"])
+def api_castle_upgrade_wall():
+    d = request.get_json() or {}
+    return jsonify(castle_war.upgrade_wall(d.get("user_id","")))
+
+@app.route("/api/castle/buy_shield", methods=["POST"])
+def api_castle_buy_shield():
+    d = request.get_json() or {}
+    return jsonify(castle_war.buy_shield(d.get("user_id","")))
+
+@app.route("/api/castle/attack", methods=["POST"])
+def api_castle_attack():
+    d = request.get_json() or {}
+    army = {k: int(d.get(k, 0)) for k in ["soldier","elite","catapult"]}
+    return jsonify(castle_war.attack(d.get("attacker_id",""), d.get("defender_id",""), army))
+
+@app.route("/api/castle/init", methods=["POST"])
+def api_castle_init():
+    d = request.get_json() or {}
+    result = castle_war.ensure_castle(d.get("user_id",""), d.get("name",""))
+    return jsonify({"ok": True, "castle": result})
 
 
 # ── Chat ──────────────────────────────────────────────────────────────────────
@@ -948,7 +992,11 @@ scheduler.add_job(_faker_noon_report,     "cron", day_of_week="mon-sat", hour=12
 scheduler.add_job(_prize_report_routine,  "cron", day_of_week="mon-sat", hour=22, minute=0)
 # 每週一 00:05 快照週冠軍排行
 scheduler.add_job(virtual_bingo.save_weekly_champion,      "cron", day_of_week="mon", hour=0, minute=5)
-scheduler.add_job(virtual_bingo.weekly_reset_all_balances, "cron", day_of_week="mon", hour=7, minute=0)
+def _weekly_full_reset():
+    virtual_bingo.weekly_reset_all_balances()
+    castle_war.weekly_reset()
+
+scheduler.add_job(_weekly_full_reset, "cron", day_of_week="mon", hour=7, minute=0)
 scheduler.start()
 
 # 啟動時若 Bingo 無資料則自動初始化（背景執行，不阻塞啟動）
