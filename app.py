@@ -633,6 +633,13 @@ def api_virtual_save_weekly_champion():
     return jsonify(result)
 
 
+@app.route("/api/virtual/reset_all_balances", methods=["POST"])
+def api_virtual_reset_all_balances():
+    """手動重置所有玩家本金（管理員用）"""
+    result = virtual_bingo.weekly_reset_all_balances()
+    return jsonify(result)
+
+
 # ── Chat ──────────────────────────────────────────────────────────────────────
 
 @app.route("/api/virtual/chat")
