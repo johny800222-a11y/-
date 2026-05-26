@@ -1,11 +1,14 @@
 """
 今彩539 核心邏輯（資料抓取 + 推薦演算法）
-推薦權重 = 歷史頻率 × 學習權重（每期對獎後動態更新）
+策略A (prob)   : 全期頻率 × 學習權重 × 遺漏修正（長期穩定）
+策略B (value)  : 近20期短期頻率 + 號碼對相關 + 連號偵測（短期追熱）
+策略C (strategy): 冷熱號 + 尾數群聚 + 區間分散（結構化平衡）
 """
 
 import re
 import time
 import random
+import itertools
 from pathlib import Path
 from datetime import datetime
 from collections import Counter
@@ -17,7 +20,7 @@ import pandas as pd
 _DATA_DIR   = Path("/data") if Path("/data").exists() else Path(__file__).parent
 DATA_FILE   = _DATA_DIR / "539_history.csv"
 BASE_URL    = "https://www.pilio.idv.tw/lto539/list539BIG.asp"
-TOTAL_PAGES = 256  # 動態：2026-05 實際頁數，每年約增加 25 頁
+TOTAL_PAGES = 256
 SLEEP_SEC   = 0.4
 HEADERS     = {"User-Agent": "Mozilla/5.0 (compatible; lottery539-app/1.0)"}
 BALL_COLS   = ["n1", "n2", "n3", "n4", "n5"]
@@ -57,7 +60,6 @@ def _fetch_page(page: int) -> list[dict]:
 
 
 def get_total_pages() -> int:
-    """動態偵測 pilio 目前總頁數"""
     try:
         resp = requests.get(f"{BASE_URL}?indexpage=1&orderby=old", headers=HEADERS, timeout=15)
         resp.encoding = "big5"
@@ -91,7 +93,6 @@ def fetch_all(progress_cb=None) -> pd.DataFrame:
 def update_latest() -> tuple[pd.DataFrame, bool]:
     df = pd.read_csv(DATA_FILE, parse_dates=["date"])
     last_page = get_total_pages()
-    # 抓最後兩頁確保不遺漏跨頁資料
     new_records = _fetch_page(last_page - 1) + _fetch_page(last_page)
     new_df = pd.DataFrame(new_records)
     new_df["date"] = pd.to_datetime(new_df["date"])
@@ -107,46 +108,41 @@ def load_data() -> pd.DataFrame | None:
     return pd.read_csv(DATA_FILE, parse_dates=["date"])
 
 
-# ── 推薦 ──────────────────────────────────────────────────────────────────────
+# ── 共用過濾 ──────────────────────────────────────────────────────────────────
 
 def _ok(nums: list[int]) -> bool:
     if len(set(nums)) != 5:
         return False
     odds = sum(1 for n in nums if n % 2 != 0)
-    if not (odds in (2, 3) and 75 <= sum(nums) <= 125):
+    if not (odds in (2, 3) and 60 <= sum(nums) <= 140):
         return False
-    # 不允許超過2個連號（3個以上連號視為異常）
-    s = sorted(nums)
-    consec = sum(1 for i in range(len(s) - 1) if s[i + 1] - s[i] == 1)
-    return consec <= 2
+    # 允許連號（不過度限制，因為真實資料連號很常見）
+    return True
 
+
+# ── 策略A：機率推薦（長期頻率 × 學習權重 × 遺漏修正）───────────────────────
 
 def recommend_best(df: pd.DataFrame, learn_weights: dict[int, float] | None = None) -> list[int]:
     """
-    大數據綜合推薦：
-      歷史頻率（長期）× 學習權重（近期命中修正）× 遺漏值修正（近50期未出現補正）
-    三層訊號加乘後做加權抽樣，兼顧熱門趨勢與冷號補回，
-    並通過奇偶比 2:3/3:2、總和 75-125 的合理性過濾。
+    策略A：大數據綜合推薦
+    歷史頻率（長期）× 學習權重（近期命中修正）× 遺漏值修正（近50期）× 連號傾向
     """
-    freq    = Counter(df[BALL_COLS].values.flatten().tolist())
-    total   = sum(freq.values())
+    freq     = Counter(df[BALL_COLS].values.flatten().tolist())
+    total    = sum(freq.values())
     avg_freq = total / len(BALL_RANGE)
 
-    # 近50期遺漏修正：久未出現的號碼給予補正加成
     recent50 = Counter(df.tail(50)[BALL_COLS].values.flatten().tolist())
-    avg_recent = sum(recent50.values()) / len(BALL_RANGE)
+    avg_r50  = sum(recent50.values()) / len(BALL_RANGE)
 
     pool    = sorted(BALL_RANGE)
     weights = []
     for n in pool:
-        w = freq.get(n, 0) / avg_freq                          # 長期頻率
-        w *= (learn_weights.get(n, 1.0) if learn_weights else 1.0)  # 學習修正
-        # 近50期遺漏越多 → 補正越大（最高 1.5 倍）
-        miss_bonus = 1.0 + 0.5 * max(0, avg_recent - recent50.get(n, 0)) / avg_recent
+        w = freq.get(n, 0) / avg_freq
+        w *= (learn_weights.get(n, 1.0) if learn_weights else 1.0)
+        miss_bonus = 1.0 + 0.5 * max(0, avg_r50 - recent50.get(n, 0)) / max(avg_r50, 1)
         w *= miss_bonus
-        # 連號傾向加成：相鄰號碼在近50期出現越多，本號權重越高（上限1.3倍）
         adj = recent50.get(n - 1, 0) + recent50.get(n + 1, 0)
-        w *= min(1.3, 1.0 + 0.15 * adj / max(avg_recent, 1))
+        w *= min(1.4, 1.0 + 0.2 * adj / max(avg_r50, 1))
         weights.append(max(w, 0.01))
 
     for _ in range(50000):
@@ -156,23 +152,83 @@ def recommend_best(df: pd.DataFrame, learn_weights: dict[int, float] | None = No
     return sorted(random.sample(BALL_RANGE, 5))
 
 
-# ── 策略推薦 ──────────────────────────────────────────────────────────────────
+# ── 策略B：價值推薦（近期短波 + 號碼對相關 + 連號特徵）─────────────────────
+
+def value_recommend(df: pd.DataFrame, learn_weights: dict[int, float] | None = None) -> list[int]:
+    """
+    策略B：短期熱區追蹤
+    - 近20期高頻號碼為主力（短期波動追蹤）
+    - 號碼對共現分析：選與最近一期共現率最高的號碼
+    - 連號偵測：如近5期出現連號對，優先納入
+    - 學習權重輔助排序
+    """
+    recent20 = df.tail(20)
+    recent5  = df.tail(5)
+
+    # 近20期頻率
+    freq20 = Counter(recent20[BALL_COLS].values.flatten().tolist())
+
+    # 近60期號碼對共現（找關聯度高的對子）
+    recent60 = df.tail(60)
+    pair_count: dict[tuple, int] = {}
+    for _, row in recent60.iterrows():
+        nums = [int(row[c]) for c in BALL_COLS]
+        for a, b in itertools.combinations(sorted(nums), 2):
+            pair_count[(a, b)] = pair_count.get((a, b), 0) + 1
+
+    # 最近一期的號碼 → 找和它共現次數最高的夥伴
+    last_nums = [int(recent5.iloc[-1][c]) for c in BALL_COLS]
+    partner_score: dict[int, int] = {}
+    for n in last_nums:
+        for (a, b), cnt in pair_count.items():
+            if a == n:
+                partner_score[b] = partner_score.get(b, 0) + cnt
+            elif b == n:
+                partner_score[a] = partner_score.get(a, 0) + cnt
+
+    # 連號偵測：近5期出現過的連號對，給加分
+    consec_bonus: dict[int, float] = {}
+    for _, row in recent5.iterrows():
+        nums = sorted([int(row[c]) for c in BALL_COLS])
+        for i in range(len(nums) - 1):
+            if nums[i + 1] - nums[i] == 1:
+                consec_bonus[nums[i]]     = consec_bonus.get(nums[i], 0) + 1.5
+                consec_bonus[nums[i + 1]] = consec_bonus.get(nums[i + 1], 0) + 1.5
+
+    # 合成權重
+    pool    = sorted(BALL_RANGE)
+    weights = []
+    max_freq20  = max(freq20.values()) if freq20 else 1
+    max_partner = max(partner_score.values()) if partner_score else 1
+
+    for n in pool:
+        w  = (freq20.get(n, 0) / max_freq20) * 3.0           # 近20期頻率（主信號）
+        w += (partner_score.get(n, 0) / max(max_partner, 1)) * 2.0  # 號碼對關聯
+        w += consec_bonus.get(n, 0)                           # 連號加分
+        w *= (learn_weights.get(n, 1.0) if learn_weights else 1.0)
+        weights.append(max(w, 0.05))
+
+    for _ in range(50000):
+        chosen = sorted(set(random.choices(pool, weights=weights, k=10)))[:5]
+        if len(chosen) == 5 and _ok(chosen):
+            return chosen
+    return sorted(random.sample(BALL_RANGE, 5))
+
+
+# ── 策略C：結構策略推薦（冷熱 + 尾數 + 區間）────────────────────────────────
 
 def strategy_recommend(df: pd.DataFrame) -> dict:
     """
-    三策略合併選號：
-      策略1 冷熱號碼：近10期熱號2碼 + 超過25期未出現冷號1碼
-      策略2 尾數群聚：取近30期最熱門尾數，補入1碼同尾號
-      策略3 分散區間：低(1-13)/中(14-26)/高(27-39) 各區保證至少1碼
-    最終5碼通過奇偶比/總和過濾，並附帶各策略分析說明。
+    策略C：結構化選號
+    策略1 冷熱號碼：近10期熱號2碼 + 超過25期未出現冷號1碼
+    策略2 尾數群聚：取近30期最熱門尾數，補入1碼同尾號
+    策略3 分散區間：低(1-13)/中(14-26)/高(27-39) 各區保證至少1碼
     """
     recent10  = Counter(df.tail(10)[BALL_COLS].values.flatten().tolist())
     recent30  = Counter(df.tail(30)[BALL_COLS].values.flatten().tolist())
 
-    # ── 策略1：冷熱號碼 ──────────────────────────────────────────
-    # 熱號：近10期出現次數最多
     hot_nums  = [n for n, _ in sorted(recent10.items(), key=lambda x: x[1], reverse=True)]
-    # 冷號：超過25期未出現
+
     all_periods = df[BALL_COLS].values.tolist()
     last_seen   = {}
     for i, row in enumerate(all_periods):
@@ -184,21 +240,18 @@ def strategy_recommend(df: pd.DataFrame) -> dict:
         key=lambda n: total_rows - 1 - last_seen.get(n, 0), reverse=True
     )
 
-    # ── 策略2：尾數群聚 ──────────────────────────────────────────
     tail_freq = Counter(n % 10 for n in recent30.elements())
-    hot_tail  = tail_freq.most_common(2)  # 最熱兩個尾數
+    hot_tail  = tail_freq.most_common(2)
     tail_candidates = []
     for tail, _ in hot_tail:
         tail_candidates += [n for n in BALL_RANGE if n % 10 == tail]
 
-    # ── 策略3：分散區間 ──────────────────────────────────────────
     zones = {"低": list(range(1, 14)), "中": list(range(14, 27)), "高": list(range(27, 40))}
 
     def best_in_zone(zone_nums, exclude):
         candidates = [n for n in zone_nums if n not in exclude]
         if not candidates:
             return None
-        # 優先熱號，其次尾數候選，最後一般
         for n in hot_nums:
             if n in candidates:
                 return n
@@ -207,14 +260,12 @@ def strategy_recommend(df: pd.DataFrame) -> dict:
                 return n
         return candidates[0]
 
-    # 組合：每區至少1碼，熱號優先，補冷號1碼，尾數穿插
     picked = []
     for zone_nums in zones.values():
         n = best_in_zone(zone_nums, set(picked))
         if n:
             picked.append(n)
 
-    # 補到5碼：先嘗試加入冷號，再從熱號補
     for n in cold_nums:
         if len(picked) >= 5:
             break
@@ -225,25 +276,19 @@ def strategy_recommend(df: pd.DataFrame) -> dict:
             break
         if n not in picked:
             picked.append(n)
-    # 最後從全體補齊
     for n in BALL_RANGE:
         if len(picked) >= 5:
             break
         if n not in picked:
             picked.append(n)
 
-    # 嘗試找通過過濾的排列（最多嘗試100組）
-    import itertools
-    candidates_pool = list(set(
-        hot_nums[:6] + cold_nums[:3] + tail_candidates[:6] + picked
-    ))
+    candidates_pool = list(set(hot_nums[:6] + cold_nums[:3] + tail_candidates[:6] + picked))
     result = sorted(picked[:5])
     for combo in itertools.combinations(candidates_pool, 5):
         if _ok(list(combo)):
             result = sorted(combo)
             break
 
-    # 分析說明
     used_hot  = [n for n in result if n in hot_nums[:5]]
     used_cold = [n for n in result if n in cold_nums]
     used_tail = [(n, n % 10) for n in result if n in tail_candidates]
@@ -262,6 +307,46 @@ def strategy_recommend(df: pd.DataFrame) -> dict:
         "cold_top3": cold_nums[:3],
         "hot_tail":  [{"tail": t, "cnt": c} for t, c in hot_tail],
     }
+
+
+# ── 整合推薦（根據近期各策略勝率，動態加權）────────────────────────────────
+
+def ensemble_recommend(
+    df: pd.DataFrame,
+    learn_weights: dict[int, float] | None = None,
+    strategy_scores: dict | None = None,
+) -> list[int]:
+    """
+    整合三策略，依近30期各策略平均命中率做加權投票，
+    選出得票最高的5碼作為最終推薦。
+    strategy_scores = {"prob": float, "value": float, "strategy": float}
+    """
+    scores = strategy_scores or {}
+    w_prob  = max(scores.get("prob", 1.0),     0.1)
+    w_value = max(scores.get("value", 1.0),    0.1)
+    w_strat = max(scores.get("strategy", 1.0), 0.1)
+
+    rec_a = recommend_best(df, learn_weights)
+    rec_b = value_recommend(df, learn_weights)
+    rec_c = strategy_recommend(df)["nums"]
+
+    # 計票
+    vote: dict[int, float] = {}
+    for n in rec_a:
+        vote[n] = vote.get(n, 0) + w_prob
+    for n in rec_b:
+        vote[n] = vote.get(n, 0) + w_value
+    for n in rec_c:
+        vote[n] = vote.get(n, 0) + w_strat
+
+    # 取票數前10，再從中過濾出5碼
+    top10 = sorted(vote, key=vote.get, reverse=True)[:10]
+    for combo in itertools.combinations(top10, 5):
+        if _ok(list(combo)):
+            return sorted(combo)
+
+    # fallback：直接取最高票5碼
+    return sorted(top10[:5])
 
 
 # ── 統計 ──────────────────────────────────────────────────────────────────────

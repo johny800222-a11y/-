@@ -22,8 +22,9 @@ app = Flask(__name__)
 # 全量抓取進度
 _fetch_state = {"running": False, "page": 0, "total": 256, "error": ""}
 
-# 推薦快取（主推薦 + 策略推薦），同一期不重複產生
+# 推薦快取（三策略獨立快取）
 _rec_file      = core.DATA_FILE.parent / "current_rec.json"
+_value_file    = core.DATA_FILE.parent / "current_value_rec.json"
 _strategy_file = core.DATA_FILE.parent / "current_strategy_rec.json"
 
 
@@ -40,6 +41,19 @@ def _save_rec(draw_date: str, nums: list):
     _rec_file.write_text(json.dumps({"draw_date": draw_date, "best": nums}))
 
 
+def _load_value_rec() -> dict:
+    if _value_file.exists():
+        try:
+            return json.loads(_value_file.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def _save_value_rec(draw_date: str, nums: list):
+    _value_file.write_text(json.dumps({"draw_date": draw_date, "nums": nums}))
+
+
 def _load_strategy_rec() -> dict:
     if _strategy_file.exists():
         try:
@@ -54,18 +68,20 @@ def _save_strategy_rec(draw_date: str, data: dict):
 
 
 def _get_or_generate_rec(df) -> list[int]:
-    """主推薦：同一期回傳快取，新一期先學習再產生"""
+    """策略A（機率推薦）：同一期回傳快取，新一期先對三策略學習再產生"""
     latest_date = df["date"].max().strftime("%Y-%m-%d")
-    cached = _load_rec()
+    cached_a = _load_rec()
 
-    if cached.get("draw_date") == latest_date:
-        return cached["best"]
+    if cached_a.get("draw_date") == latest_date:
+        return cached_a["best"]
 
-    # 新一期：學習後產生推薦
-    old_best     = cached.get("best", [])
+    # 新一期：用上一期的三組推薦來學習
+    old_prob     = cached_a.get("best", [])
+    old_value    = _load_value_rec().get("nums", [])
     old_strategy = _load_strategy_rec().get("nums", [])
-    if old_best:
-        learner.auto_update_from_df(df, old_best, old_best, last_strategy=old_strategy)
+
+    if old_prob:
+        learner.auto_update_from_df(df, old_prob, old_value or old_prob, last_strategy=old_strategy)
 
     weights = learner.get_weights()
     best = core.recommend_best(df, weights)
@@ -73,8 +89,25 @@ def _get_or_generate_rec(df) -> list[int]:
     return best
 
 
+def _get_or_generate_value(df) -> list[int]:
+    """策略B（價值推薦）：近期短波 + 號碼對相關"""
+    latest_date = df["date"].max().strftime("%Y-%m-%d")
+    cached = _load_value_rec()
+
+    if cached.get("draw_date") == latest_date:
+        return cached["nums"]
+
+    # 確保 A 先執行（學習已完成）
+    _get_or_generate_rec(df)
+
+    weights = learner.get_weights()
+    nums = core.value_recommend(df, weights)
+    _save_value_rec(latest_date, nums)
+    return nums
+
+
 def _get_or_generate_strategy(df) -> dict:
-    """策略推薦：同一期回傳快取，新一期重新產生"""
+    """策略C（結構策略推薦）：同一期回傳快取，新一期重新產生"""
     latest_date = df["date"].max().strftime("%Y-%m-%d")
     cached = _load_strategy_rec()
 
@@ -84,6 +117,13 @@ def _get_or_generate_strategy(df) -> dict:
     result = core.strategy_recommend(df)
     _save_strategy_rec(latest_date, result)
     return {"draw_date": latest_date, **result}
+
+
+def _get_ensemble(df) -> list[int]:
+    """整合推薦：根據三策略近期勝率動態加權"""
+    weights = learner.get_weights()
+    scores  = learner.get_ensemble_scores()
+    return core.ensemble_recommend(df, weights, scores)
 
 
 # ── 頁面 ─────────────────────────────────────────────────────────────────────
@@ -153,22 +193,33 @@ def api_recommend():
     if df is None:
         return jsonify({"ok": False, "msg": "尚無資料"})
 
-    best = _get_or_generate_rec(df)
-    cached = _load_rec()
-
-    strategy = _get_or_generate_strategy(df)
+    best     = _get_or_generate_rec(df)        # 策略A：機率推薦
+    value    = _get_or_generate_value(df)      # 策略B：價值推薦
+    strategy = _get_or_generate_strategy(df)   # 策略C：結構策略
+    ensemble = _get_ensemble(df)               # 整合推薦（三策略加權投票）
+    cached   = _load_rec()
+    scores   = learner.get_ensemble_scores()
 
     return jsonify({
         "ok":        True,
-        "best":      best,
+        "best":      best,       # 策略A
+        "value":     value,      # 策略B
+        "ensemble":  ensemble,   # 整合推薦
         "draw_date": cached.get("draw_date", ""),
-        "strategy":  strategy,
+        "strategy":  strategy,   # 策略C（含詳細分析）
+        "ensemble_scores": scores,
     })
 
 
 @app.route("/api/learn/history")
 def api_learn_history():
     return jsonify(learner.get_summary())
+
+
+@app.route("/api/learn/weekly_report")
+def api_weekly_report():
+    """手動觸發週度學習報告"""
+    return jsonify(learner.weekly_deep_analysis())
 
 
 # ── Bingo ─────────────────────────────────────────────────────────────────────
@@ -675,6 +726,16 @@ def api_castle_buy_shield():
     d = request.get_json() or {}
     return jsonify(castle_war.buy_shield(d.get("user_id","")))
 
+@app.route("/api/castle/upgrade_hp", methods=["POST"])
+def api_castle_upgrade_hp():
+    d = request.get_json() or {}
+    return jsonify(castle_war.upgrade_hp(d.get("user_id","")))
+
+@app.route("/api/castle/revive", methods=["POST"])
+def api_castle_revive():
+    d = request.get_json() or {}
+    return jsonify(castle_war.revive(d.get("user_id","")))
+
 @app.route("/api/castle/attack", methods=["POST"])
 def api_castle_attack():
     d = request.get_json() or {}
@@ -695,6 +756,19 @@ def api_castle_admin_reset():
     hp = int(d.get("hp", 500))
     bonus = int(d.get("bonus_pts", 0))
     result = castle_war.admin_reset_all(hp=hp, bonus_pts=bonus)
+    return jsonify(result)
+
+@app.route("/api/castle/admin_patch", methods=["POST"])
+def api_castle_admin_patch():
+    d = request.get_json() or {}
+    if d.get("secret") != "syuan_admin_2026":
+        return jsonify({"ok": False, "msg": "unauthorized"}), 403
+    result = castle_war.admin_patch_castle(
+        user_id=d.get("user_id",""),
+        hp=d.get("hp"),
+        points_add=int(d.get("points_add", 0)),
+        unban=bool(d.get("unban", False))
+    )
     return jsonify(result)
 
 
@@ -804,6 +878,15 @@ def api_bingo_pages():
             results.append({"page": page, "error": str(e)})
     return jsonify(results)
 
+
+@app.route("/api/bingo/recalc", methods=["POST"])
+def api_bingo_recalc():
+    """管理員：用正確賠率重算所有已結算快照的獎金"""
+    d = request.get_json() or {}
+    if d.get("secret") != "syuan_admin_2026":
+        return jsonify({"ok": False, "msg": "unauthorized"}), 403
+    result = bingo_tracker.recalc_all_settled()
+    return jsonify(result)
 
 @app.route("/api/bingo/debug")
 def api_bingo_debug():
@@ -968,29 +1051,90 @@ def _tw_now() -> str:
     return datetime.now(pytz.timezone("Asia/Taipei")).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _539_weekly_learn():
-    """週一~週六 21:05 對 539 做迭代學習 + 備份"""
+def _539_daily_learn():
+    """週一~週六 21:05 每日迭代：三策略分別學習 + 重新生成推薦"""
     try:
         df = core.load_data()
         if df is None or df.empty:
             return
-        cached = _load_rec()
-        old_best = cached.get("best", [])
-        if old_best:
-            learner.auto_update_from_df(df, old_best, old_best)
-        weights = learner.get_weights()
-        best = core.recommend_best(df, weights)
+
+        # 讀取昨日三策略推薦
+        old_prob     = _load_rec().get("best", [])
+        old_value    = _load_value_rec().get("nums", [])
+        old_strategy = _load_strategy_rec().get("nums", [])
+
+        if old_prob:
+            result = learner.auto_update_from_df(
+                df,
+                last_prob=old_prob,
+                last_value=old_value or old_prob,
+                last_strategy=old_strategy,
+            )
+            if result:
+                import os, requests as req
+                tg_token = os.environ.get("TG_BOT_TOKEN", "")
+                tg_chat  = os.environ.get("TG_CHAT_ID", "")
+                if tg_token and tg_chat:
+                    msg = (
+                        f"🎯 539 每日迭代完成 {result['date']}\n"
+                        f"實際開獎：{result['actual']}\n"
+                        f"A機率命中：{result['prob_hits']}/5\n"
+                        f"B價值命中：{result['value_hits']}/5\n"
+                        f"C策略命中：{result['strategy_hits']}/5\n"
+                        f"整合權重 → A:{result['ensemble_scores'].get('prob',1):.2f} "
+                        f"B:{result['ensemble_scores'].get('value',1):.2f} "
+                        f"C:{result['ensemble_scores'].get('strategy',1):.2f}"
+                    )
+                    req.post(
+                        f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                        json={"chat_id": tg_chat, "text": msg},
+                        timeout=10,
+                    )
+
+        # 重新生成三策略推薦（無效化快取讓下次呼叫重算）
         latest_date = df["date"].max().strftime("%Y-%m-%d")
-        _save_rec(latest_date, best)
-        # 迭代完成後立刻備份
+        weights = learner.get_weights()
+        scores  = learner.get_ensemble_scores()
+
+        new_prob     = core.recommend_best(df, weights)
+        new_value    = core.value_recommend(df, weights)
+        new_strategy = core.strategy_recommend(df)
+        new_ensemble = core.ensemble_recommend(df, weights, scores)
+
+        _save_rec(latest_date, new_prob)
+        _save_value_rec(latest_date, new_value)
+        _save_strategy_rec(latest_date, new_strategy)
+
+        # 迭代完成後備份
         backup_manager.send_backup_to_telegram()
+    except Exception:
+        import traceback
+        print("539 daily learn error:", traceback.format_exc())
+
+
+def _539_weekly_report():
+    """每週一 09:05 發送週度學習報告到 TG"""
+    try:
+        report = learner.weekly_deep_analysis()
+        if not report.get("ok"):
+            return
+        import os, requests as req
+        tg_token = os.environ.get("TG_BOT_TOKEN", "")
+        tg_chat  = os.environ.get("TG_CHAT_ID", "")
+        if tg_token and tg_chat:
+            req.post(
+                f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                json={"chat_id": tg_chat, "text": report["report_text"]},
+                timeout=10,
+            )
     except Exception:
         pass
 
 
 scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
 scheduler.add_job(_auto_update,           "cron", day_of_week="mon-sat", hour=21, minute=0)
-scheduler.add_job(_539_weekly_learn,      "cron", day_of_week="mon-sat", hour=21, minute=5)
+scheduler.add_job(_539_daily_learn,       "cron", day_of_week="mon-sat", hour=21, minute=5)
+scheduler.add_job(_539_weekly_report,     "cron", day_of_week="mon",     hour=9,  minute=5)
 scheduler.add_job(_bingo_auto_update,     "interval", minutes=5)
 # 每日投注快照（12:00 / 16:00 / 20:00）
 scheduler.add_job(_take_snapshot, "cron", hour=12, minute=0,  args=["12:00"])
