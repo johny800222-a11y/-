@@ -16,9 +16,10 @@ from datetime import datetime
 
 import pandas as pd
 
-_DATA_DIR  = Path("/data") if Path("/data").exists() else Path(__file__).parent
-LEARN_FILE = _DATA_DIR / "learn_state.json"
-BALL_RANGE  = list(range(1, 40))
+_DATA_DIR    = Path("/data") if Path("/data").exists() else Path(__file__).parent
+LEARN_FILE   = _DATA_DIR / "learn_state.json"
+WEEKLY_FILE  = _DATA_DIR / "learn_weekly.json"   # 539 週報歷史（永久保存）
+BALL_RANGE   = list(range(1, 40))
 
 # 衰減因子
 DECAY        = 0.90
@@ -251,6 +252,24 @@ def weekly_deep_analysis() -> dict:
         f"═" * 34,
     ]
 
+    report_text = "\n".join(lines)
+
+    # 永久保存週報快照
+    weekly_hist = _load_weekly_history()
+    snap = {
+        "week_end":      datetime.now().strftime("%Y-%m-%d"),
+        "this_week":     this_week,
+        "last_week":     last_week,
+        "delta":         delta,
+        "avg30":         avg30,
+        "best_strategy": best_key,
+        "total_rounds":  state["total_rounds"],
+        "ensemble_scores": state.get("ensemble_scores", {}),
+        "report_text":   report_text,
+    }
+    weekly_hist.append(snap)
+    _save_weekly_history(weekly_hist)
+
     return {
         "ok":        True,
         "this_week": this_week,
@@ -260,7 +279,7 @@ def weekly_deep_analysis() -> dict:
         "best_strategy": best_key,
         "total_rounds":  state["total_rounds"],
         "ensemble_scores": state.get("ensemble_scores", {}),
-        "report_text": "\n".join(lines),
+        "report_text": report_text,
     }
 
 
@@ -275,3 +294,20 @@ def get_summary() -> dict:
         "last_checked":      state["last_checked"],
         "history":           state["history"][-10:],
     }
+
+
+def _load_weekly_history() -> list:
+    if WEEKLY_FILE.exists():
+        try:
+            return json.loads(WEEKLY_FILE.read_text())
+        except Exception:
+            pass
+    return []
+
+
+def _save_weekly_history(data: list):
+    WEEKLY_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def get_weekly_history() -> list:
+    return _load_weekly_history()

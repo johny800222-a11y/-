@@ -222,6 +222,12 @@ def api_weekly_report():
     return jsonify(learner.weekly_deep_analysis())
 
 
+@app.route("/api/learn/weekly_history")
+def api_learn_weekly_history():
+    """查看 539 所有週報歷史（永久保存）"""
+    return jsonify({"ok": True, "history": learner.get_weekly_history()})
+
+
 # ── Bingo ─────────────────────────────────────────────────────────────────────
 
 @app.route("/bingo")
@@ -440,6 +446,23 @@ def api_bingo_learn():
     """查看學習狀態"""
     summary = bingo_learner.get_summary()
     return jsonify({"ok": True, "morning_log": _morning_log, **summary})
+
+
+@app.route("/api/bingo/weekly_report")
+def api_bingo_weekly_report():
+    """手動觸發 Bingo 週度深度學習報告"""
+    try:
+        df     = bingo_core.load_data()
+        report = bingo_learner.weekly_deep_learn(df)
+        return jsonify(report)
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
+@app.route("/api/bingo/weekly_history")
+def api_bingo_weekly_history():
+    """查看所有週報歷史（永久保存）"""
+    return jsonify({"ok": True, "history": bingo_learner.get_weekly_history()})
 
 
 @app.route("/api/bingo/send_report", methods=["POST"])
@@ -986,20 +1009,49 @@ def _send_telegram(text: str):
 
 
 def _bingo_midnight_learn():
-    """每日 00:05：Bingo 全日開獎結束，結算快照 + 迭代更新學習權重 + 備份"""
-    import traceback
+    """每日 00:05：Bingo 全日開獎結束，結算快照 + 迭代更新學習權重 + TG推播 + 備份"""
+    import traceback as tb
     try:
         df = bingo_core.load_data()
         if df is None or df.empty:
             return
-        data = bingo_tracker.settle_snapshots(df)
-        result = bingo_learner.daily_update(data, df)
+        data    = bingo_tracker.settle_snapshots(df)
+        result  = bingo_learner.daily_update(data, df)
+        summary = bingo_learner.get_summary()
         _morning_log.update(last_run=_tw_now(), result=result, error=None)
-        # 迭代完成後立刻備份
+
+        # 每日迭代完成 → TG 推播進度
+        avg6  = result.get("avg_six_hits",  0)
+        avg9  = result.get("avg_nine_hits", 0)
+        gap6  = round(3.0 - avg6, 2)
+        gap9  = round(4.0 - avg9, 2)
+        d     = result.get("date", "")
+        rounds = result.get("rounds", 0)
+        msg = (
+            f"🎱 Bingo 每日迭代完成 {d}\n"
+            f"昨日結算期數：{rounds} 期\n"
+            f"6星平均命中：{avg6:.2f} 顆（目標3.0，差{gap6:+.2f}）\n"
+            f"9星平均命中：{avg9:.2f} 顆（目標4.0，差{gap9:+.2f}）\n"
+            f"累計學習期數：{summary.get('total_rounds', 0)}"
+        )
+        _send_telegram(msg)
+
+        # 備份
         backup_manager.send_backup_to_telegram()
     except Exception:
-        import traceback as tb
         _morning_log.update(last_run=_tw_now(), result=None, error=tb.format_exc())
+
+
+def _bingo_weekly_deep_learn():
+    """每週一 00:10：Bingo 深度學習 + 週報保存 + TG推播"""
+    try:
+        df   = bingo_core.load_data()
+        data = bingo_tracker.settle_snapshots(df) if df is not None else {}
+        report = bingo_learner.weekly_deep_learn(df)
+        if report.get("ok"):
+            _send_telegram(report["report_text"])
+    except Exception:
+        pass
 
 
 def _morning_routine():
@@ -1141,7 +1193,8 @@ scheduler.add_job(_take_snapshot, "cron", hour=12, minute=0,  args=["12:00"])
 scheduler.add_job(_take_snapshot, "cron", hour=16, minute=0,  args=["16:00"])
 scheduler.add_job(_take_snapshot, "cron", hour=20, minute=0,  args=["20:00"])
 # 00:00 Bingo 迭代學習（開獎 07:05~23:55 結束後）
-scheduler.add_job(_bingo_midnight_learn,  "cron", hour=0, minute=5)
+scheduler.add_job(_bingo_midnight_learn,      "cron", hour=0,  minute=5)
+scheduler.add_job(_bingo_weekly_deep_learn,   "cron", day_of_week="mon", hour=0, minute=10)
 # 09:00 傳送每日 TG 報告
 scheduler.add_job(_morning_routine,       "cron", hour=9, minute=0)
 # 每日 12:00 傳送 Faker 推薦
