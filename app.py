@@ -1009,34 +1009,15 @@ def _send_telegram(text: str):
 
 
 def _bingo_midnight_learn():
-    """每日 00:05：Bingo 全日開獎結束，結算快照 + 迭代更新學習權重 + TG推播 + 備份"""
+    """每日 00:05：Bingo 全日開獎結束，結算快照 + 迭代更新學習權重 + 備份（不傳TG，09:00統一傳）"""
     import traceback as tb
     try:
         df = bingo_core.load_data()
         if df is None or df.empty:
             return
-        data    = bingo_tracker.settle_snapshots(df)
-        result  = bingo_learner.daily_update(data, df)
-        summary = bingo_learner.get_summary()
+        data   = bingo_tracker.settle_snapshots(df)
+        result = bingo_learner.daily_update(data, df)
         _morning_log.update(last_run=_tw_now(), result=result, error=None)
-
-        # 每日迭代完成 → TG 推播進度
-        avg6  = result.get("avg_six_hits",  0)
-        avg9  = result.get("avg_nine_hits", 0)
-        gap6  = round(3.0 - avg6, 2)
-        gap9  = round(4.0 - avg9, 2)
-        d     = result.get("date", "")
-        rounds = result.get("rounds", 0)
-        msg = (
-            f"🎱 Bingo 每日迭代完成 {d}\n"
-            f"昨日結算期數：{rounds} 期\n"
-            f"6星平均命中：{avg6:.2f} 顆（目標3.0，差{gap6:+.2f}）\n"
-            f"9星平均命中：{avg9:.2f} 顆（目標4.0，差{gap9:+.2f}）\n"
-            f"累計學習期數：{summary.get('total_rounds', 0)}"
-        )
-        _send_telegram(msg)
-
-        # 備份
         backup_manager.send_backup_to_telegram()
     except Exception:
         _morning_log.update(last_run=_tw_now(), result=None, error=tb.format_exc())
@@ -1055,19 +1036,30 @@ def _bingo_weekly_deep_learn():
 
 
 def _morning_routine():
-    """早上9點：傳送每日報告到 Telegram（學習已於 00:00 完成）"""
+    """早上9點：傳送 Bingo 每日報告 + 539 今日推薦 到 Telegram（學習已於 00:00 完成）"""
     import traceback
     try:
         df = bingo_core.load_data()
         if df is None or df.empty:
             _morning_log.update(last_run=_tw_now(), result=None, error="無開獎資料")
             return
-        # 確保快照已結算（補保險）
-        data = bingo_tracker.settle_snapshots(df)
-        # 取學習摘要（00:00 已更新過）
+        data          = bingo_tracker.settle_snapshots(df)
         learn_summary = bingo_learner.get_summary()
-        text = bingo_tracker.daily_report_text(df, learn_summary)
-        _send_telegram(text)
+
+        # Bingo 損益報告 + 命中統計（含迭代進度）
+        result = _morning_log.get("result") or {}
+        avg6   = result.get("avg_six_hits",  learn_summary.get("avg_six_hits",  0))
+        avg9   = result.get("avg_nine_hits", learn_summary.get("avg_nine_hits", 0))
+        gap6   = round(3.0 - avg6, 2)
+        gap9   = round(4.0 - avg9, 2)
+        bingo_text = bingo_tracker.daily_report_text(df, learn_summary)
+        learn_line = (
+            f"\n📈 迭代進度\n"
+            f"   6星平均：{avg6:.2f} 顆（目標3.0，差{gap6:+.2f}）\n"
+            f"   9星平均：{avg9:.2f} 顆（目標4.0，差{gap9:+.2f}）\n"
+            f"   累計學習：{learn_summary.get('total_rounds', 0)} 期"
+        )
+        _send_telegram(bingo_text + learn_line)
         html = bingo_tracker.daily_report_html(df)
         bingo_tracker.send_daily_email(html)
     except Exception:
@@ -1123,25 +1115,17 @@ def _539_daily_learn():
                 last_strategy=old_strategy,
             )
             if result:
-                import os, requests as req
-                tg_token = os.environ.get("TG_BOT_TOKEN", "")
-                tg_chat  = os.environ.get("TG_CHAT_ID", "")
-                if tg_token and tg_chat:
-                    msg = (
-                        f"🎯 539 每日迭代完成 {result['date']}\n"
-                        f"實際開獎：{result['actual']}\n"
-                        f"A機率命中：{result['prob_hits']}/5\n"
-                        f"B價值命中：{result['value_hits']}/5\n"
-                        f"C策略命中：{result['strategy_hits']}/5\n"
-                        f"整合權重 → A:{result['ensemble_scores'].get('prob',1):.2f} "
-                        f"B:{result['ensemble_scores'].get('value',1):.2f} "
-                        f"C:{result['ensemble_scores'].get('strategy',1):.2f}"
-                    )
-                    req.post(
-                        f"https://api.telegram.org/bot{tg_token}/sendMessage",
-                        json={"chat_id": tg_chat, "text": msg},
-                        timeout=10,
-                    )
+                msg = (
+                    f"🎯 539 每日迭代完成 {result['date']}\n"
+                    f"實際開獎：{result['actual']}\n"
+                    f"A機率命中：{result['prob_hits']}/5\n"
+                    f"B價值命中：{result['value_hits']}/5\n"
+                    f"C策略命中：{result['strategy_hits']}/5\n"
+                    f"整合權重 A:{result['ensemble_scores'].get('prob',1):.2f} "
+                    f"B:{result['ensemble_scores'].get('value',1):.2f} "
+                    f"C:{result['ensemble_scores'].get('strategy',1):.2f}"
+                )
+                _send_telegram(msg)
 
         # 重新生成三策略推薦（無效化快取讓下次呼叫重算）
         latest_date = df["date"].max().strftime("%Y-%m-%d")
@@ -1165,20 +1149,11 @@ def _539_daily_learn():
 
 
 def _539_weekly_report():
-    """每週一 09:05 發送週度學習報告到 TG"""
+    """每週一 09:05 發送 539 週度學習報告到 TG"""
     try:
         report = learner.weekly_deep_analysis()
-        if not report.get("ok"):
-            return
-        import os, requests as req
-        tg_token = os.environ.get("TG_BOT_TOKEN", "")
-        tg_chat  = os.environ.get("TG_CHAT_ID", "")
-        if tg_token and tg_chat:
-            req.post(
-                f"https://api.telegram.org/bot{tg_token}/sendMessage",
-                json={"chat_id": tg_chat, "text": report["report_text"]},
-                timeout=10,
-            )
+        if report.get("ok"):
+            _send_telegram(report["report_text"])
     except Exception:
         pass
 
