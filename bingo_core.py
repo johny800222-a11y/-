@@ -616,12 +616,13 @@ def cooccurrence_matrix(df: pd.DataFrame, window: int = 30) -> dict[tuple[int,in
 
 def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -> dict:
     """
-    多層訊號智慧選號：
-      短期熱號（30期）× 中期頻率（200期）× 長期基準（全量）
-      冷號補正（超過 N 期未出現 → 補分）
-      統計偏差（chi-square 方向加成）
+    多層訊號智慧選號（v2 強化版）：
+      超短期熱號（8期）× 短期（30期）× 中期（200期）× 長期基準
+      近期超熱加成（最近5期出現≥3次 → 大幅加分）
+      冷號補正（超過N期未出現 → 補分）
       學習權重（每日迭代更新）
-      區間平衡（1-20 / 21-40 / 41-60 / 61-80 各至少1個）
+      純分數排序選號（移除強制關聯對，改用軟性區間限制）
+      6星/9星獨立最佳化（互不依賴）
     """
     if learn_weights is None:
         import bingo_learner
@@ -629,7 +630,7 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
 
     total_rows = len(df)
 
-    # ── 三層頻率統計 ────────────────────────────────────────────────
+    # ── 四層頻率統計 ─────────────────────────────────────────────────
     def freq_counter(rows):
         c = Counter()
         for _, row in rows.iterrows():
@@ -637,18 +638,37 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
                 c[int(row[col])] += 1
         return c
 
-    short_w   = min(30,  total_rows)
-    mid_w     = min(200, total_rows)
-    long_w    = total_rows
+    ultra_w = min(8,   total_rows)   # 超短期（~40分鐘）
+    short_w = min(30,  total_rows)   # 短期（~2.5小時）
+    mid_w   = min(200, total_rows)   # 中期（~16小時）
+    long_w  = total_rows
 
-    freq_s = freq_counter(df.tail(short_w))   # 短期
-    freq_m = freq_counter(df.tail(mid_w))      # 中期
-    freq_l = freq_counter(df)                   # 長期
+    freq_us = freq_counter(df.tail(ultra_w))   # 超短期
+    freq_s  = freq_counter(df.tail(short_w))   # 短期
+    freq_m  = freq_counter(df.tail(mid_w))     # 中期
+    freq_l  = freq_counter(df)                  # 長期
 
-    # 各層期望值（均勻分布下每號出現次數）
-    exp_s = short_w * 20 / 80
-    exp_m = mid_w  * 20 / 80
-    exp_l = long_w * 20 / 80
+    exp_us = max(ultra_w * 20 / 80, 0.01)
+    exp_s  = max(short_w * 20 / 80, 0.01)
+    exp_m  = max(mid_w   * 20 / 80, 0.01)
+    exp_l  = max(long_w  * 20 / 80, 0.01)
+
+    # ── 近期超熱加成（最近5期頻繁出現 → 強勢追漲）────────────────
+    last5_rows = df.tail(5)[NUM_COLS].values.tolist()
+    last5_cnt = Counter()
+    for row in last5_rows:
+        for n in row:
+            last5_cnt[int(n)] += 1
+
+    def super_hot_bonus(n):
+        cnt = last5_cnt.get(n, 0)
+        if cnt >= 4:
+            return 2.5   # 最近5期出現4次 → 極熱
+        if cnt >= 3:
+            return 1.8   # 最近5期出現3次 → 超熱
+        if cnt >= 2:
+            return 1.25  # 最近5期出現2次 → 熱
+        return 1.0
 
     # ── 冷號補正：超過 cold_threshold 期沒出現的號碼加分 ────────────
     cold_threshold = 25  # 超過25期未出現
@@ -711,15 +731,17 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
     if avg_bonus > 0:
         pair_learn_bonus = {n: v / avg_bonus for n, v in pair_learn_bonus.items()}
 
-    # ── 綜合分數 ────────────────────────────────────────────────────
-    # 三層頻率 × 冷號補正 × 號碼學習權重 × 共現強度 × 數對學習加成
+    # ── 綜合分數（四層頻率 + 超熱加成 + 冷號補正 + 學習加成）───────
     scores = {}
     for n in BALL_RANGE:
-        s_score = freq_s.get(n, 0) / exp_s
-        m_score = freq_m.get(n, 0) / exp_m
-        l_score = freq_l.get(n, 0) / exp_l
+        us_score = freq_us.get(n, 0) / exp_us   # 超短期
+        s_score  = freq_s.get(n, 0)  / exp_s    # 短期
+        m_score  = freq_m.get(n, 0)  / exp_m    # 中期
+        l_score  = freq_l.get(n, 0)  / exp_l    # 長期
 
-        combined = s_score * 0.50 + m_score * 0.35 + l_score * 0.15
+        # 四層加權：超短期最重 → 對近期趨勢更敏感
+        combined  = us_score * 0.30 + s_score * 0.40 + m_score * 0.20 + l_score * 0.10
+        combined *= super_hot_bonus(n)           # 近期超熱加成（最高 ×2.5）
         combined *= cold_bonus(n)
         combined *= learn_weights.get(n, 1.0)
         # 二同數：兩號共現強度加成（上限 1.25 倍）
@@ -749,8 +771,7 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
 
     all_ranked = sorted(BALL_RANGE, key=lambda n: scores.get(n, 0), reverse=True)
 
-    # ── 強力關聯數對（二同數）優先選號 ──────────────────────────────
-    # 找出共現次數最強的號碼對（前N對），優先把這些對納入選號
+    # ── 排序統計（供前端顯示）──────────────────────────────────────
     sorted_pairs = sorted(comat.items(), key=lambda x: x[1], reverse=True)
     max_comat = max(comat.values()) if comat else 1
 
@@ -771,54 +792,35 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
         for (a, b), cnt in sorted(consec_freq.items(), key=lambda x: x[1], reverse=True)[:5]
     ]
 
-    # 建立「被強力對覆蓋」的號碼集合
-    # 策略：先鎖定最強的1~2對關聯數對作為核心，再區間平衡補足
-    def pick_strong_pair_core(n_pairs, exclude):
-        """從最強關聯對中選出 n_pairs 組（各2個），不重複"""
+    # ── 純分數排名選號（軟性區間限制：每區間最多3顆，確保不過度集中）
+    def pick_by_score(target_n, max_per_zone=3):
+        """
+        從 all_ranked 按分數依序選號，
+        軟性限制：每 20-球區間最多 max_per_zone 顆。
+        若排完後不足，放寬限制補齊。
+        """
+        zone_cnt = {0: 0, 1: 0, 2: 0, 3: 0}   # 1-20, 21-40, 41-60, 61-80
         picked = []
-        used = set(exclude)
-        for (a, b), cnt in sorted_pairs:
-            if len(picked) >= n_pairs * 2:
+        for n in all_ranked:
+            if len(picked) >= target_n:
                 break
-            if a not in used and b not in used:
-                picked.extend([a, b])
-                used.update([a, b])
+            z = (n - 1) // 20
+            if zone_cnt[z] < max_per_zone:
+                picked.append(n)
+                zone_cnt[z] += 1
+        # 若因區間限制不足，放寬補滿
+        if len(picked) < target_n:
+            for n in all_ranked:
+                if n not in picked:
+                    picked.append(n)
+                if len(picked) >= target_n:
+                    break
         return picked
 
-    # 6星：1組強力關聯對（2個）+ 區間平衡補4個
-    six = pick_strong_pair_core(1, [])
-    for z in zones:
-        if len(six) >= 6:
-            break
-        candidates = sorted(
-            [n for n in z if n not in set(six)],
-            key=lambda n: scores.get(n, 0), reverse=True
-        )
-        if candidates:
-            six.append(candidates[0])
-    for n in all_ranked:
-        if len(six) >= 6:
-            break
-        if n not in six:
-            six.append(n)
-
-    # 9星：2組強力關聯對（4個）+ 區間平衡補5個
-    nine_core = pick_strong_pair_core(2, [])
-    nine = list(nine_core)
-    for z in zones:
-        if len(nine) >= 9:
-            break
-        candidates = sorted(
-            [n for n in z if n not in set(nine)],
-            key=lambda n: scores.get(n, 0), reverse=True
-        )
-        if candidates:
-            nine.append(candidates[0])
-    for n in all_ranked:
-        if len(nine) >= 9:
-            break
-        if n not in nine:
-            nine.append(n)
+    # 6星：純分數前6（每區間最多3顆）
+    six  = pick_by_score(6,  max_per_zone=3)
+    # 9星：獨立選最佳9（每區間最多4顆），不強制包含6星
+    nine = pick_by_score(9,  max_per_zone=4)
 
     # ── 評分指標 ───────────────────────────────────────────────────
     hot_max = max(x["cnt"] for x in hot_short) or 1

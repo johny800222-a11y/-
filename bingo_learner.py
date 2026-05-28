@@ -191,6 +191,25 @@ def daily_update(tracker_data: dict, df=None) -> dict:
     hit_six_counter  = Counter()
     hit_nine_counter = Counter()
 
+    # ── 從 df 取昨日實際開獎號碼（精準學習）──────────────────────
+    import bingo_core as _bc
+    yest_actual_counter = Counter()   # 號碼在昨日各期出現次數
+    if df is not None and not df.empty:
+        try:
+            yest_rows = df[df["date"] == yesterday]
+            for _, row in yest_rows.iterrows():
+                for col in _bc.NUM_COLS:
+                    yest_actual_counter[int(row[col])] += 1
+        except Exception:
+            pass
+
+    # 昨日實際開獎加成：出現次數越多 → 越應該在推薦中
+    if yest_actual_counter:
+        max_cnt = max(yest_actual_counter.values())
+        for n, cnt in yest_actual_counter.items():
+            boost = 1.0 + 0.12 * (cnt / max_cnt)
+            state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * boost
+
     # Step 2：昨日快照命中回饋
     for snap in yest_snaps:
         slot = snap.get("slot", "")
@@ -213,32 +232,42 @@ def daily_update(tracker_data: dict, df=None) -> dict:
             total_nine_hits += nine_hits
             round_count += 1
 
-            # 命中回饋：直接強化命中的號碼
+            # 命中回饋：根據命中率強化/懲罰推薦號碼
+            six_rate  = six_hits  / 6
+            nine_rate = nine_hits / 9
+
+            # 六星命中回饋
             if six_hits >= 3:
                 for n in six:
-                    # 如果這顆球開出（需對照 df，但快照沒存開獎號碼 → 用命中率代理）
-                    # 命中數越多，推薦號碼整體越好 → 全體輕加成
-                    factor = 1.0 + 0.08 * six_hits
+                    factor = 1.0 + 0.10 * six_hits
                     state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * factor
+            elif six_hits <= 1:
+                # 低命中 → 輕微懲罰推薦號碼（但不過度）
+                for n in six:
+                    state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * 0.96
 
+            # 九星命中回饋
             if nine_hits >= 4:
                 for n in nine:
-                    factor = 1.0 + 0.06 * nine_hits
+                    factor = 1.0 + 0.07 * nine_hits
                     state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * factor
+            elif nine_hits <= 2:
+                for n in nine:
+                    state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * 0.97
 
-            # 時段偏好更新
-            if six_hits >= 4 and slot in state["slot_hits"]:
+            # 時段偏好更新（降低門檻：六星≥3 / 九星≥5）
+            if six_hits >= 3 and slot in state["slot_hits"]:
                 for n in six:
                     state["slot_hits"][slot][str(n)] = \
                         state["slot_hits"][slot].get(str(n), 0) + six_hits
 
-            if nine_hits >= 6 and slot in state["slot_hits"]:
+            if nine_hits >= 5 and slot in state["slot_hits"]:
                 for n in nine:
                     state["slot_hits"][slot][str(n)] = \
                         state["slot_hits"][slot].get(str(n), 0) + nine_hits
 
-            # 數對學習
-            hit_rate = (six_hits / 6 + nine_hits / 9) / 2
+            # 數對學習（整體命中率）
+            hit_rate = (six_rate + nine_rate) / 2
             PAIR_BONUS = 1.12
             PAIR_DECAY = 0.97
             for (a, b) in rec_pairs:
