@@ -1121,14 +1121,20 @@ def _morning_routine():
 
 
 
+_faker_noon_sent = {"date": ""}   # 防重複鎖
+
 def _faker_noon_report():
-    """每日 12:00 傳送 Faker 今日推薦到 TG"""
+    """每日 12:00 傳送 Faker 今日推薦到 TG（防重複：同一天只送一次）"""
     try:
+        import datetime as _dt
+        today = _dt.datetime.now(pytz.timezone("Asia/Taipei")).strftime("%Y-%m-%d")
+        if _faker_noon_sent["date"] == today:
+            return   # 今天已送過，略過
+        _faker_noon_sent["date"] = today
+
         nums = prize_tracker.faker_pick()
         nums_str = "  ".join(f"{n:02d}" for n in nums)
-        from datetime import datetime
-        now = datetime.now(pytz.timezone("Asia/Taipei")).strftime("%Y-%m-%d")
-        text = f"🃏 Faker 今日推薦\n📅 {now}\n\n{nums_str}\n\n（台彩獲利最高組合）"
+        text = f"🃏 Faker 今日推薦\n📅 {today}\n\n{nums_str}\n\n（台彩獲利最高組合）"
         _send_telegram(text)
     except Exception:
         pass
