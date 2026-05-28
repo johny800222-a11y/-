@@ -1,6 +1,6 @@
 """
 Bingo Bingo 投注追蹤 + 每日損益報告
-每日12/16/20點各買6星×10期、9星×10期，基準資金1000元
+每日12/16/20點各買6星×10期（$250）、9星×10期（$250），基準資金1000元
 """
 
 import json
@@ -16,15 +16,19 @@ _DATA_DIR    = Path("/data") if Path("/data").exists() else Path(__file__).paren
 TRACKER_FILE = _DATA_DIR / "bingo_invest.json"
 
 # ── 賠率設定（每注） ─────────────────────────────────────────────
-COST_6 = 50    # 每注50元
-COST_9 = 50    # 每注50元（9星同價）
+COST_6 = 25    # 每注25元（6星，10期共250元）
+COST_9 = 25    # 每注25元（9星，10期共250元）
 PERIODS_PER_SLOT = 10   # 每個時段買幾期
 STARTING_BALANCE = 1000
 
-# 6星：選6個號碼，依命中數給獎
-PRIZE_6 = {6: 10000, 5: 300, 4: 50, 3: 0, 2: 0, 1: 0, 0: 0}
-# 9星：選9個號碼，依命中數給獎
-PRIZE_9 = {9: 80000, 8: 4000, 7: 400, 6: 50, 5: 0, 4: 0, 3: 0, 2: 0, 1: 0, 0: 0}
+# 6星：選6個號碼，依命中數給獎（台彩官方賠率）
+# 中6→$25,000 / 中5→$1,000 / 中4→$200 / 中3→$25 / 其餘→$0
+PRIZE_6 = {6: 25000, 5: 1000, 4: 200, 3: 25, 2: 0, 1: 0, 0: 0}
+
+# 9星：選9個號碼，依命中數給獎（台彩官方賠率）
+# 中9→$1,000,000 / 中8→$100,000 / 中7→$3,000 / 中6→$500
+# 中5→$100 / 中4→$25 / 中0→$25 / 其餘→$0
+PRIZE_9 = {9: 1_000_000, 8: 100_000, 7: 3_000, 6: 500, 5: 100, 4: 25, 3: 0, 2: 0, 1: 0, 0: 25}
 
 NUM_COLS = bingo_core.NUM_COLS
 
@@ -52,25 +56,27 @@ def _save(data: dict):
 
 # ── 快照儲存（12/16/20點呼叫） ────────────────────────────────────
 
-def save_snapshot(slot_label: str, six: list[int], nine: list[int], latest_period: str):
+def save_snapshot(slot_label: str, six: list[int], nine: list[int], latest_period: str,
+                  strategy_nominations: dict = None):
     """
     記錄當前推薦，並標記投注從 latest_period 之後的10期。
     slot_label: "12:00" / "16:00" / "20:00"
+    strategy_nominations: 各策略的提名（供學習器追蹤命中率）
     """
     data = _load()
-    # 去重：同一天同一時段同一期已存在則略過
     today = datetime.now(_TW).strftime("%Y-%m-%d")
     for s in data["snapshots"]:
         if s.get("date") == today and s.get("slot") == slot_label and s.get("from_period") == latest_period:
             return
     now = datetime.now(_TW).strftime("%Y-%m-%d %H:%M")
     snap = {
-        "date":    datetime.now(_TW).strftime("%Y-%m-%d"),
+        "date":    today,
         "slot":    slot_label,
         "saved_at": now,
         "six":     six,
         "nine":    nine,
         "from_period": latest_period,
+        "strategy_nominations": strategy_nominations or {},
         "settled": False,
         "results": [],
     }
@@ -261,3 +267,40 @@ def send_daily_email(html_body: str):
         server.starttls()
         server.login(smtp_user, smtp_pass)
         server.sendmail(smtp_user, to_email, msg.as_string())
+
+
+def recalc_all_settled() -> dict:
+    """用正確賠率重新計算所有已結算快照的獎金，修正 balance/total_bet/total_win。
+    歷史原始開獎資料（hits）不動，只重算 win 金額。"""
+    data = _load()
+    new_total_bet = 0
+    new_total_win = 0
+
+    for snap in data["snapshots"]:
+        if not snap.get("settled"):
+            continue
+        slot_bet = PERIODS_PER_SLOT * (COST_6 + COST_9)
+        slot_win = 0
+        for r in snap.get("results", []):
+            w6 = PRIZE_6.get(r["six_hits"], 0)
+            w9 = PRIZE_9.get(r["nine_hits"], 0)
+            r["six_win"]  = w6
+            r["nine_win"] = w9
+            slot_win += w6 + w9
+        snap["bet"] = slot_bet
+        snap["win"] = slot_win
+        snap["net"] = slot_win - slot_bet
+        new_total_bet += slot_bet
+        new_total_win += slot_win
+
+    data["total_bet"] = new_total_bet
+    data["total_win"] = new_total_win
+    data["balance"]   = STARTING_BALANCE + new_total_win - new_total_bet
+    _save(data)
+    return {
+        "ok": True,
+        "snapshots_recalc": sum(1 for s in data["snapshots"] if s.get("settled")),
+        "total_bet": new_total_bet,
+        "total_win": new_total_win,
+        "balance":   data["balance"],
+    }

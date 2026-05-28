@@ -1028,7 +1028,10 @@ def _take_snapshot(slot_label: str):
         slot_weights = bingo_learner.get_weights_for_slot(slot_label)
         pick = bingo_core.smart_pick(df, learn_weights=slot_weights)
         latest_period = str(int(df["period"].astype(float).max()))
-        bingo_tracker.save_snapshot(slot_label, pick["six"], pick["nine"], latest_period)
+        bingo_tracker.save_snapshot(
+            slot_label, pick["six"], pick["nine"], latest_period,
+            strategy_nominations=pick.get("strategy_nominations", {})
+        )
     except Exception:
         pass
 

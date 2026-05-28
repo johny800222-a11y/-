@@ -616,21 +616,34 @@ def cooccurrence_matrix(df: pd.DataFrame, window: int = 30) -> dict[tuple[int,in
 
 def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -> dict:
     """
-    多層訊號智慧選號（v2 強化版）：
-      超短期熱號（8期）× 短期（30期）× 中期（200期）× 長期基準
-      近期超熱加成（最近5期出現≥3次 → 大幅加分）
-      冷號補正（超過N期未出現 → 補分）
-      學習權重（每日迭代更新）
-      純分數排序選號（移除強制關聯對，改用軟性區間限制）
-      6星/9星獨立最佳化（互不依賴）
+    多策略投票選號系統（v3）：
+    ══════════════════════════════════════════════════════
+    6 個獨立策略各自提名候選號碼，票數最多者勝出。
+    策略投票權重由 bingo_learner 每週根據命中率自動調整。
+
+    策略清單：
+      S1 超短期動能（最近3期出現≥2次的球 × 1.5倍追漲）
+      S2 短期熱號（近20期頻率最高前12名）
+      S3 冷號回歸（遺漏超過期望值的球，按遺漏程度排名）
+      S4 強力共現（近100期共現次數最高的球）
+      S5 區間峰值（1-20/21-40/41-60/61-80 各取最熱前3）
+      S6 學習模型（learner weights × pair_weights 綜合評分）
+
+    最終選號：票數最多 → 分數最高（同票時加成處理）
+    6星/9星完全獨立選號，不互相牽制
+    ══════════════════════════════════════════════════════
     """
+    import bingo_learner as _bl
+
     if learn_weights is None:
-        import bingo_learner
-        learn_weights = bingo_learner.get_weights()
+        learn_weights = _bl.get_weights()
 
     total_rows = len(df)
+    ball_cols  = [c for c in df.columns if c.startswith("n") and c[1:].isdigit()]
 
-    # ── 四層頻率統計 ─────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════
+    # 共用統計資料
+    # ══════════════════════════════════════════════════════════════
     def freq_counter(rows):
         c = Counter()
         for _, row in rows.iterrows():
@@ -638,192 +651,215 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
                 c[int(row[col])] += 1
         return c
 
-    ultra_w = min(8,   total_rows)   # 超短期（~40分鐘）
-    short_w = min(30,  total_rows)   # 短期（~2.5小時）
-    mid_w   = min(200, total_rows)   # 中期（~16小時）
-    long_w  = total_rows
+    w3   = min(3,   total_rows)
+    w8   = min(8,   total_rows)
+    w20  = min(20,  total_rows)
+    w50  = min(50,  total_rows)
+    w100 = min(100, total_rows)
+    w200 = min(200, total_rows)
 
-    freq_us = freq_counter(df.tail(ultra_w))   # 超短期
-    freq_s  = freq_counter(df.tail(short_w))   # 短期
-    freq_m  = freq_counter(df.tail(mid_w))     # 中期
-    freq_l  = freq_counter(df)                  # 長期
+    freq3   = freq_counter(df.tail(w3))
+    freq8   = freq_counter(df.tail(w8))
+    freq20  = freq_counter(df.tail(w20))
+    freq50  = freq_counter(df.tail(w50))
+    freq100 = freq_counter(df.tail(w100))
 
-    exp_us = max(ultra_w * 20 / 80, 0.01)
-    exp_s  = max(short_w * 20 / 80, 0.01)
-    exp_m  = max(mid_w   * 20 / 80, 0.01)
-    exp_l  = max(long_w  * 20 / 80, 0.01)
+    exp3   = max(w3   * 20 / 80, 0.001)
+    exp8   = max(w8   * 20 / 80, 0.001)
+    exp20  = max(w20  * 20 / 80, 0.001)
+    exp50  = max(w50  * 20 / 80, 0.001)
+    exp100 = max(w100 * 20 / 80, 0.001)
 
-    # ── 近期超熱加成（最近5期頻繁出現 → 強勢追漲）────────────────
-    last5_rows = df.tail(5)[NUM_COLS].values.tolist()
-    last5_cnt = Counter()
-    for row in last5_rows:
-        for n in row:
-            last5_cnt[int(n)] += 1
-
-    def super_hot_bonus(n):
-        cnt = last5_cnt.get(n, 0)
-        if cnt >= 4:
-            return 2.5   # 最近5期出現4次 → 極熱
-        if cnt >= 3:
-            return 1.8   # 最近5期出現3次 → 超熱
-        if cnt >= 2:
-            return 1.25  # 最近5期出現2次 → 熱
-        return 1.0
-
-    # ── 冷號補正：超過 cold_threshold 期沒出現的號碼加分 ────────────
-    cold_threshold = 25  # 超過25期未出現
+    # 遺漏期數
     last_seen = {}
-    nums_list = df[NUM_COLS].values.tolist()
-    for i, nums in enumerate(nums_list):
-        for n in nums:
+    for i, row_nums in enumerate(df[NUM_COLS].values.tolist()):
+        for n in row_nums:
             last_seen[int(n)] = i
-    def cold_bonus(n):
-        last = last_seen.get(n, 0)
-        gap = total_rows - 1 - last
-        if gap >= cold_threshold:
-            return 1.0 + min(1.5, (gap - cold_threshold) / cold_threshold)
-        return 1.0
+    expected_gap = 80 / 20   # 每球平均 4 期一次
 
-    # ── 二同數：兩號共現強度（中期視窗） ────────────────────────
-    comat = cooccurrence_matrix(df, mid_w)
+    def miss_periods(n):
+        return total_rows - 1 - last_seen.get(n, 0)
+
+    # 共現矩陣（近100期）
+    comat = cooccurrence_matrix(df, w100)
+    sorted_pairs = sorted(comat.items(), key=lambda x: x[1], reverse=True)
+    max_comat = max(comat.values()) if comat else 1
+
+    # 每個號碼的共現強度
     pair_strength: dict[int, int] = Counter()
     for (a, b), cnt in comat.items():
         pair_strength[a] += cnt
         pair_strength[b] += cnt
-    max_pair = max(pair_strength.values()) if pair_strength else 1
 
-    # ── 三同數：三號共現強度 ──────────────────────────────────
-    triplets = triplet_cooccurrence(df, window=mid_w, top_n=50)
-    triplet_strength: dict[int, int] = Counter()
-    for t in triplets:
-        triplet_strength[t["a"]] += t["cnt"]
-        triplet_strength[t["b"]] += t["cnt"]
-        triplet_strength[t["c"]] += t["cnt"]
-    max_triplet = max(triplet_strength.values()) if triplet_strength else 1
-
-    # ── 連號對頻率 ────────────────────────────────────────────
-    consec_freq = consecutive_pair_freq(df, window=mid_w)
-    consec_strength: dict[int, int] = Counter()
-    for (a, b), cnt in consec_freq.items():
-        consec_strength[a] += cnt
-        consec_strength[b] += cnt
-    max_consec = max(consec_strength.values()) if consec_strength else 1
-
-    # ── 數對迭代學習權重 ─────────────────────────────────────────
-    # 從 bingo_learner 取歷史命中更新過的數對權重
-    import bingo_learner as _bl
-    pair_learn_w = _bl.get_pair_weights()   # {(a,b): float}
-
-    # 每個號碼的「數對學習加成」= 該號碼參與的所有數對的學習權重平均
+    # 數對迭代學習
+    pair_learn_w = _bl.get_pair_weights()
     pair_learn_bonus: dict[int, float] = {}
     for n in BALL_RANGE:
-        related = []
-        for m in BALL_RANGE:
-            if m == n:
-                continue
-            key = (min(n, m), max(n, m))
-            if key in pair_learn_w:
-                related.append(pair_learn_w[key])
+        related = [pair_learn_w[(min(n, m), max(n, m))]
+                   for m in BALL_RANGE if m != n and (min(n, m), max(n, m)) in pair_learn_w]
         pair_learn_bonus[n] = sum(related) / len(related) if related else 1.0
+    avg_pb = sum(pair_learn_bonus.values()) / len(pair_learn_bonus)
+    if avg_pb > 0:
+        pair_learn_bonus = {n: v / avg_pb for n, v in pair_learn_bonus.items()}
 
-    # 正規化使平均為 1.0
-    avg_bonus = sum(pair_learn_bonus.values()) / len(pair_learn_bonus)
-    if avg_bonus > 0:
-        pair_learn_bonus = {n: v / avg_bonus for n, v in pair_learn_bonus.items()}
+    # 從 bingo_learner 取策略權重（每週自動更新）
+    strategy_weights = _bl.get_strategy_weights()
+    # 預設各策略同等權重 1.0，週深度學習後會自動調整
+    sw = {
+        "s1_momentum":  strategy_weights.get("s1_momentum",  1.0),
+        "s2_hot":       strategy_weights.get("s2_hot",       1.0),
+        "s3_cold":      strategy_weights.get("s3_cold",      1.0),
+        "s4_cooccur":   strategy_weights.get("s4_cooccur",   1.0),
+        "s5_zone":      strategy_weights.get("s5_zone",      1.0),
+        "s6_learner":   strategy_weights.get("s6_learner",   1.0),
+    }
 
-    # ── 綜合分數（四層頻率 + 超熱加成 + 冷號補正 + 學習加成）───────
-    scores = {}
+    # ══════════════════════════════════════════════════════════════
+    # 6 個獨立策略各自提名候選（提名前 N 名）
+    # ══════════════════════════════════════════════════════════════
+    NOM6 = 14   # 6星：每策略提名14名，從中取票數最多的6顆
+    NOM9 = 18   # 9星：每策略提名18名，從中取票數最多的9顆
+
+    def top_n_from(scores_dict, n):
+        return sorted(BALL_RANGE, key=lambda x: scores_dict.get(x, 0), reverse=True)[:n]
+
+    # S1：超短期動能 — 最近3期頻率 + 最近8期頻率加權
+    s1_scores = {}
     for n in BALL_RANGE:
-        us_score = freq_us.get(n, 0) / exp_us   # 超短期
-        s_score  = freq_s.get(n, 0)  / exp_s    # 短期
-        m_score  = freq_m.get(n, 0)  / exp_m    # 中期
-        l_score  = freq_l.get(n, 0)  / exp_l    # 長期
+        r3 = freq3.get(n, 0) / exp3
+        r8 = freq8.get(n, 0) / exp8
+        s1_scores[n] = r3 * 0.6 + r8 * 0.4
+    s1_nom6 = top_n_from(s1_scores, NOM6)
+    s1_nom9 = top_n_from(s1_scores, NOM9)
 
-        # 四層加權：超短期最重 → 對近期趨勢更敏感
-        combined  = us_score * 0.30 + s_score * 0.40 + m_score * 0.20 + l_score * 0.10
-        combined *= super_hot_bonus(n)           # 近期超熱加成（最高 ×2.5）
-        combined *= cold_bonus(n)
-        combined *= learn_weights.get(n, 1.0)
-        # 二同數：兩號共現強度加成（上限 1.25 倍）
-        combined *= min(1.25, 1.0 + 0.25 * pair_strength.get(n, 0) / max_pair)
-        # 三同數：三號共現強度加成（上限 1.2 倍）
-        combined *= min(1.20, 1.0 + 0.20 * triplet_strength.get(n, 0) / max_triplet)
-        # 連號頻率加成（上限 1.15 倍）
-        combined *= min(1.15, 1.0 + 0.15 * consec_strength.get(n, 0) / max_consec)
-        # 數對迭代學習加成（上限 1.4 倍）
-        combined *= min(1.4, pair_learn_bonus.get(n, 1.0))
+    # S2：短期熱號 — 近20期 + 近50期頻率
+    s2_scores = {}
+    for n in BALL_RANGE:
+        r20 = freq20.get(n, 0) / exp20
+        r50 = freq50.get(n, 0) / exp50
+        s2_scores[n] = r20 * 0.65 + r50 * 0.35
+    s2_nom6 = top_n_from(s2_scores, NOM6)
+    s2_nom9 = top_n_from(s2_scores, NOM9)
 
-        scores[n] = max(combined, 0.001)
+    # S3：冷號回歸 — 遺漏期數超過期望值越多，分數越高
+    s3_scores = {}
+    for n in BALL_RANGE:
+        miss = miss_periods(n)
+        # 遺漏越長越加分，但有上限
+        ratio = miss / expected_gap
+        s3_scores[n] = min(ratio, 8.0)   # 最多8倍加成
+    s3_nom6 = top_n_from(s3_scores, NOM6)
+    s3_nom9 = top_n_from(s3_scores, NOM9)
 
-    # ── 熱號 Top 10（短期視窗，供前端顯示） ───────────────────────
-    hot_short = hot_numbers(df, window)
-    hot_top10 = sorted(hot_short, key=lambda x: x["cnt"], reverse=True)[:10]
+    # S4：強力共現 — 近100期共現強度最高
+    s4_scores = {}
+    max_ps = max(pair_strength.values()) if pair_strength else 1
+    for n in BALL_RANGE:
+        s4_scores[n] = pair_strength.get(n, 0) / max_ps
+    s4_nom6 = top_n_from(s4_scores, NOM6)
+    s4_nom9 = top_n_from(s4_scores, NOM9)
 
-    # ── 區間平衡選號 ────────────────────────────────────────────────
+    # S5：區間峰值 — 每個區間(1-20/21-40/41-60/61-80)取最熱的 NOM6/4 顆
+    # 用近50期頻率找各區間頂尖球
     zones = [range(1, 21), range(21, 41), range(41, 61), range(61, 81)]
+    s5_nom6, s5_nom9 = [], []
+    per_zone6 = max(1, NOM6 // 4)
+    per_zone9 = max(1, NOM9 // 4)
+    for z in zones:
+        zone_ranked = sorted(z, key=lambda n: freq50.get(n, 0), reverse=True)
+        s5_nom6.extend(zone_ranked[:per_zone6])
+        s5_nom9.extend(zone_ranked[:per_zone9])
+    # 補不夠的
+    all_by_freq50 = sorted(BALL_RANGE, key=lambda n: freq50.get(n, 0), reverse=True)
+    for n in all_by_freq50:
+        if len(s5_nom6) >= NOM6:
+            break
+        if n not in s5_nom6:
+            s5_nom6.append(n)
+    for n in all_by_freq50:
+        if len(s5_nom9) >= NOM9:
+            break
+        if n not in s5_nom9:
+            s5_nom9.append(n)
 
-    def best_from_zone(z, exclude, n_pick):
-        candidates = sorted(
-            [num for num in z if num not in exclude],
-            key=lambda num: scores.get(num, 0), reverse=True
-        )
-        return candidates[:n_pick]
+    # S6：學習模型 — learner weights × pair_learn_bonus
+    s6_scores = {}
+    for n in BALL_RANGE:
+        s6_scores[n] = learn_weights.get(n, 1.0) * pair_learn_bonus.get(n, 1.0)
+    s6_nom6 = top_n_from(s6_scores, NOM6)
+    s6_nom9 = top_n_from(s6_scores, NOM9)
 
-    all_ranked = sorted(BALL_RANGE, key=lambda n: scores.get(n, 0), reverse=True)
+    # ══════════════════════════════════════════════════════════════
+    # 投票整合：加權票數 + 綜合分數作 tiebreaker
+    # ══════════════════════════════════════════════════════════════
+    def vote_and_pick(nom6_lists, nom9_lists, weights_dict, target):
+        """
+        nom6_lists: [(strategy_key, nomination_list), ...]
+        weights_dict: {strategy_key: weight}
+        target: 6 or 9
+        """
+        nom_lists = nom6_lists if target == 6 else nom9_lists
+        votes = Counter()
+        for key, nominees in nom_lists:
+            w = weights_dict.get(key, 1.0)
+            for n in nominees:
+                votes[n] += w
 
-    # ── 排序統計（供前端顯示）──────────────────────────────────────
-    sorted_pairs = sorted(comat.items(), key=lambda x: x[1], reverse=True)
-    max_comat = max(comat.values()) if comat else 1
+        # tiebreaker：綜合分數（所有策略分數加權均值）
+        combo_score = {}
+        for n in BALL_RANGE:
+            combo_score[n] = (
+                s1_scores.get(n, 0) * sw["s1_momentum"] +
+                s2_scores.get(n, 0) * sw["s2_hot"] +
+                s3_scores.get(n, 0) / 8 * sw["s3_cold"] +   # 正規化到 0~1
+                s4_scores.get(n, 0) * sw["s4_cooccur"] +
+                freq50.get(n, 0) / exp50 * sw["s5_zone"] +
+                s6_scores.get(n, 0) * sw["s6_learner"]
+            )
 
-    # Top 10 強力關聯對（供前端顯示）
-    top_pairs = []
-    for (a, b), cnt in sorted_pairs[:10]:
-        top_pairs.append({
-            "a": a, "b": b, "cnt": cnt,
-            "pct": round(cnt / max_comat * 100)
-        })
+        # 依 (票數, 綜合分) 排序，取前 target 名
+        all_ranked = sorted(BALL_RANGE,
+                            key=lambda n: (votes.get(n, 0), combo_score.get(n, 0)),
+                            reverse=True)
+        return all_ranked[:target], votes, combo_score
 
-    # 前5三同數組
-    top_triplets = triplets[:5]
-
-    # 前5連號對
-    top_consec = [
-        {"a": a, "b": b, "cnt": cnt}
-        for (a, b), cnt in sorted(consec_freq.items(), key=lambda x: x[1], reverse=True)[:5]
+    nom_pairs_6 = [
+        ("s1_momentum", s1_nom6),
+        ("s2_hot",      s2_nom6),
+        ("s3_cold",     s3_nom6),
+        ("s4_cooccur",  s4_nom6),
+        ("s5_zone",     s5_nom6),
+        ("s6_learner",  s6_nom6),
+    ]
+    nom_pairs_9 = [
+        ("s1_momentum", s1_nom9),
+        ("s2_hot",      s2_nom9),
+        ("s3_cold",     s3_nom9),
+        ("s4_cooccur",  s4_nom9),
+        ("s5_zone",     s5_nom9),
+        ("s6_learner",  s6_nom9),
     ]
 
-    # ── 純分數排名選號（軟性區間限制：每區間最多3顆，確保不過度集中）
-    def pick_by_score(target_n, max_per_zone=3):
-        """
-        從 all_ranked 按分數依序選號，
-        軟性限制：每 20-球區間最多 max_per_zone 顆。
-        若排完後不足，放寬限制補齊。
-        """
-        zone_cnt = {0: 0, 1: 0, 2: 0, 3: 0}   # 1-20, 21-40, 41-60, 61-80
-        picked = []
-        for n in all_ranked:
-            if len(picked) >= target_n:
-                break
-            z = (n - 1) // 20
-            if zone_cnt[z] < max_per_zone:
-                picked.append(n)
-                zone_cnt[z] += 1
-        # 若因區間限制不足，放寬補滿
-        if len(picked) < target_n:
-            for n in all_ranked:
-                if n not in picked:
-                    picked.append(n)
-                if len(picked) >= target_n:
-                    break
-        return picked
+    six,  votes6, combo6 = vote_and_pick(nom_pairs_6, nom_pairs_9, sw, 6)
+    nine, votes9, combo9 = vote_and_pick(nom_pairs_6, nom_pairs_9, sw, 9)
 
-    # 6星：純分數前6（每區間最多3顆）
-    six  = pick_by_score(6,  max_per_zone=3)
-    # 9星：獨立選最佳9（每區間最多4顆），不強制包含6星
-    nine = pick_by_score(9,  max_per_zone=4)
+    # ══════════════════════════════════════════════════════════════
+    # 供前端顯示的附加資訊
+    # ══════════════════════════════════════════════════════════════
+    hot_short = hot_numbers(df, w20)
+    hot_top10 = sorted(hot_short, key=lambda x: x["cnt"], reverse=True)[:10]
+    hot_max   = max((x["cnt"] for x in hot_short), default=1)
 
-    # ── 評分指標 ───────────────────────────────────────────────────
-    hot_max = max(x["cnt"] for x in hot_short) or 1
+    top_pairs_display = [
+        {"a": a, "b": b, "cnt": cnt, "pct": round(cnt / max_comat * 100)}
+        for (a, b), cnt in sorted_pairs[:4]
+    ]
+    triplets       = triplet_cooccurrence(df, window=w100, top_n=5)
+    consec_freq_d  = consecutive_pair_freq(df, window=w100)
+    top_consec     = [
+        {"a": a, "b": b, "cnt": cnt}
+        for (a, b), cnt in sorted(consec_freq_d.items(), key=lambda x: x[1], reverse=True)[:5]
+    ]
 
     def heat_score(nums):
         freq_map = {x["num"]: x["cnt"] for x in hot_short}
@@ -832,39 +868,12 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
     def pair_score(nums):
         s_pairs = [(a, b) for i, a in enumerate(nums) for b in nums[i+1:] if a < b]
         s = sum(comat.get((a, b), 0) for a, b in s_pairs)
-        mx = max_comat
-        return round(s / (len(s_pairs) * mx) * 100) if s_pairs else 0
-
-    # ── 回測命中分 ────────────────────────────────────────────────
-    def backtest_score(nums, min_hits, lookback=50):
-        """
-        近 lookback 期中，命中球數 >= min_hits 的比率（0-100）。
-        用 >=2 (6星) / >=3 (9星) 作門檻比 >=1 更有鑑別度。
-        """
-        ball_cols = sorted(
-            [c for c in df.columns if c.startswith("n") and c[1:].isdigit()],
-            key=lambda x: int(x[1:])
-        )
-        recent = df.tail(lookback)
-        num_set = set(nums)
-        hit_count, total = 0, 0
-        for _, row in recent.iterrows():
-            drawn = set(int(row[c]) for c in ball_cols if row[c] > 0)
-            if drawn:
-                total += 1
-                if len(num_set & drawn) >= min_hits:
-                    hit_count += 1
-        return round(hit_count / total * 100) if total else 0
+        return round(s / (len(s_pairs) * max_comat) * 100) if s_pairs else 0
 
     def avg_hits_backtest(nums, lookback=50):
-        """近 lookback 期平均命中球數"""
-        ball_cols = sorted(
-            [c for c in df.columns if c.startswith("n") and c[1:].isdigit()],
-            key=lambda x: int(x[1:])
-        )
-        recent = df.tail(lookback)
+        recent  = df.tail(lookback)
         num_set = set(nums)
-        total_hits, total = 0, 0
+        total_hits = total = 0
         for _, row in recent.iterrows():
             drawn = set(int(row[c]) for c in ball_cols if row[c] > 0)
             if drawn:
@@ -872,76 +881,53 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
                 total_hits += len(num_set & drawn)
         return round(total_hits / total, 2) if total else 0.0
 
-    # ── 迭代學習分 ────────────────────────────────────────────────
-    def learner_score(nums):
-        """
-        從 bingo_learner 取迭代學習權重，計算選號組合的學習分（0-100）。
-        - 號碼權重均值（基準=1.0，>1代表模型看好）
-        - 數對學習權重均值（基準=1.0，>1代表此對歷史表現佳）
-        兩者相乘後正規化：1.0 → 50分，0.5 → 0分，2.0 → 100分（線性插值）
-        """
-        import bingo_learner as _bl
-        state = _bl.load_state()
-        w_map = {int(k): v for k, v in state.get("weights", {}).items()}
-        pw_map = state.get("pair_weights", {})
-
-        # 號碼平均權重
-        num_w = [w_map.get(n, 1.0) for n in nums]
-        avg_num_w = sum(num_w) / len(num_w) if num_w else 1.0
-
-        # 選號內所有數對的學習權重平均
-        pairs_in = [(min(a, b), max(a, b))
-                    for i, a in enumerate(nums) for b in nums[i+1:]]
-        pw_vals = [pw_map.get(f"{a},{b}", 1.0) for a, b in pairs_in]
-        avg_pair_w = sum(pw_vals) / len(pw_vals) if pw_vals else 1.0
-
-        # 綜合乘積（兩者皆 1.0 → 50分基準）
-        combined = avg_num_w * avg_pair_w
-        # 線性映射：0.5→0, 1.0→50, 2.0→100（超出邊界夾緊）
-        score = (combined - 0.5) / (2.0 - 0.5) * 100
-        return round(max(0, min(100, score)))
-
-    # ── 綜合命中機率 ──────────────────────────────────────────────
-    def combined_prob(nums, min_hits):
-        """
-        三因子加權綜合機率（0-100）：
-          40% 回測命中率（近50期，>=min_hits球）
-          40% 迭代學習分（learner weights × pair_weights）
-          20% 熱度×關聯分（heat + pair score 均值）
-        """
-        bt  = backtest_score(nums, min_hits, lookback=50)
-        ls  = learner_score(nums)
-        hps = (heat_score(nums) + pair_score(nums)) / 2
-        score = bt * 0.40 + ls * 0.40 + hps * 0.20
-        return round(score)
-
-    # 標示選號中包含的強力對
-    def find_strong_pairs_in(nums):
-        result = []
+    def backtest_pct(nums, min_hits, lookback=50):
+        recent  = df.tail(lookback)
         num_set = set(nums)
-        for (a, b), cnt in sorted_pairs[:20]:
-            if a in num_set and b in num_set:
-                result.append({"a": a, "b": b, "cnt": cnt,
-                               "pct": round(cnt / max_comat * 100)})
-        return result
+        hits = total = 0
+        for _, row in recent.iterrows():
+            drawn = set(int(row[c]) for c in ball_cols if row[c] > 0)
+            if drawn:
+                total += 1
+                if len(num_set & drawn) >= min_hits:
+                    hits += 1
+        return round(hits / total * 100) if total else 0
+
+    def find_strong_pairs_in(nums):
+        num_set = set(nums)
+        return [{"a": a, "b": b, "cnt": cnt, "pct": round(cnt / max_comat * 100)}
+                for (a, b), cnt in sorted_pairs[:20]
+                if a in num_set and b in num_set]
+
+    # 策略提名分布（供學習器追蹤）
+    strategy_nominations = {
+        "s1": {"six": s1_nom6[:6], "nine": s1_nom9[:9]},
+        "s2": {"six": s2_nom6[:6], "nine": s2_nom9[:9]},
+        "s3": {"six": s3_nom6[:6], "nine": s3_nom9[:9]},
+        "s4": {"six": s4_nom6[:6], "nine": s4_nom9[:9]},
+        "s5": {"six": s5_nom6[:6], "nine": s5_nom9[:9]},
+        "s6": {"six": s6_nom6[:6], "nine": s6_nom9[:9]},
+    }
 
     return {
         "hot_top10":      hot_top10,
-        "top_pairs":      top_pairs[:4],
-        "top_triplets":   top_triplets,
+        "top_pairs":      top_pairs_display,
+        "top_triplets":   triplets,
         "top_consec":     top_consec,
         "six":            sorted(six),
         "nine":           sorted(nine),
         "six_pairs":      find_strong_pairs_in(six),
         "nine_pairs":     find_strong_pairs_in(nine),
+        "strategy_nominations": strategy_nominations,
+        "strategy_weights":     sw,
         "scores": {
-            "six_heat":     heat_score(six),
-            "six_pair":     pair_score(six),
-            "six_prob":     combined_prob(six,  min_hits=2),   # 綜合命中機率
-            "six_avg":      avg_hits_backtest(six),             # 近50期平均命中球數
-            "nine_heat":    heat_score(nine),
-            "nine_pair":    pair_score(nine),
-            "nine_prob":    combined_prob(nine, min_hits=3),
-            "nine_avg":     avg_hits_backtest(nine),
+            "six_heat":   heat_score(six),
+            "six_pair":   pair_score(six),
+            "six_prob":   backtest_pct(six,  min_hits=2),
+            "six_avg":    avg_hits_backtest(six),
+            "nine_heat":  heat_score(nine),
+            "nine_pair":  pair_score(nine),
+            "nine_prob":  backtest_pct(nine, min_hits=3),
+            "nine_avg":   avg_hits_backtest(nine),
         }
     }
