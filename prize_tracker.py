@@ -229,7 +229,215 @@ def find_low_winner_combinations(top_n: int = 5) -> dict:
 
 # ── Faker 策略 ───────────────────────────────────────────────────────────────
 
-FAKER_FILE = _DATA_DIR / "faker_tracker.json"
+FAKER_FILE        = _DATA_DIR / "faker_tracker.json"
+FAKER_LEARN_FILE  = _DATA_DIR / "faker_learn.json"
+FAKER_WEEKLY_FILE = _DATA_DIR / "faker_learn_weekly.json"
+
+# 學習目標
+TARGET_HITS = 5.0
+
+
+# ── Faker 學習狀態 I/O ────────────────────────────────────────────────────────
+
+def _default_faker_learn() -> dict:
+    return {
+        "weights":       {str(n): 1.0 for n in NUM_RANGE},   # 號碼學習權重
+        "history":       [],    # 每日記錄 [{date, picks, actual, hits}]
+        "total_rounds":  0,
+        "avg_hits":      0.0,
+        "last_updated":  None,
+    }
+
+
+def _load_faker_learn() -> dict:
+    if FAKER_LEARN_FILE.exists():
+        try:
+            s = json.loads(FAKER_LEARN_FILE.read_text())
+            for k, v in _default_faker_learn().items():
+                if k not in s:
+                    s[k] = v
+            return s
+        except Exception:
+            pass
+    return _default_faker_learn()
+
+
+def _save_faker_learn(state: dict):
+    FAKER_LEARN_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+
+
+def _load_faker_weekly() -> list:
+    if FAKER_WEEKLY_FILE.exists():
+        try:
+            return json.loads(FAKER_WEEKLY_FILE.read_text())
+        except Exception:
+            pass
+    return []
+
+
+def _save_faker_weekly(data: list):
+    FAKER_WEEKLY_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def get_faker_learn_weights() -> dict[int, float]:
+    return {int(k): v for k, v in _load_faker_learn()["weights"].items()}
+
+
+def faker_daily_learn(date: str, picks: list[int], actual: list[int]) -> dict:
+    """
+    每日學習：根據實際開獎更新 Faker 號碼學習權重。
+    命中的號碼加分，未命中的衰減，強化 Faker 策略命中率。
+    """
+    state = _load_faker_learn()
+    hits  = len(set(picks) & set(actual))
+
+    DECAY       = 0.88
+    HIT_BONUS   = 2.8
+    MISS_DECAY  = 0.72
+
+    # 衰減所有權重
+    for k in state["weights"]:
+        state["weights"][k] = float(state["weights"][k]) * DECAY
+
+    # 命中號碼加分
+    for n in actual:
+        key = str(n)
+        if key in state["weights"]:
+            state["weights"][key] = float(state["weights"][key]) * HIT_BONUS
+
+    # 推薦但未命中的號碼：額外懲罰
+    missed_picks = set(picks) - set(actual)
+    for n in missed_picks:
+        key = str(n)
+        if key in state["weights"]:
+            state["weights"][key] = float(state["weights"][key]) * MISS_DECAY
+
+    # 正規化
+    vals = list(state["weights"].values())
+    avg  = sum(vals) / len(vals)
+    if avg > 0:
+        state["weights"] = {k: float(v) / avg for k, v in state["weights"].items()}
+
+    # 記錄
+    record = {"date": date, "picks": picks, "actual": actual, "hits": hits}
+    state["history"].append(record)
+    state["history"]    = state["history"][-180:]
+    state["total_rounds"] += 1
+    state["last_updated"]  = datetime.now(_TW).strftime("%Y-%m-%d %H:%M")
+
+    recent30 = state["history"][-30:]
+    state["avg_hits"] = round(sum(r["hits"] for r in recent30) / len(recent30), 2) if recent30 else 0.0
+
+    _save_faker_learn(state)
+    return {"date": date, "hits": hits, "avg_hits": state["avg_hits"], "total_rounds": state["total_rounds"]}
+
+
+def faker_weekly_deep_learn() -> dict:
+    """
+    每週一深度學習：
+    1. 本週 vs 上週命中率對比
+    2. 高頻命中號碼加強加成
+    3. 連續低命中週期懲罰
+    4. 保存週報（永久歷史）
+    """
+    state   = _load_faker_learn()
+    history = state.get("history", [])
+
+    this_week = history[-7:]  if len(history) >= 7  else history
+    last_week = history[-14:-7] if len(history) >= 14 else []
+
+    def avg_h(lst):
+        return round(sum(r["hits"] for r in lst) / len(lst), 2) if lst else 0.0
+
+    tw_avg = avg_h(this_week)
+    lw_avg = avg_h(last_week)
+    delta  = round(tw_avg - lw_avg, 2)
+
+    # 本週哪些號碼被實際開出次數最多
+    actual_counter = defaultdict(int)
+    for r in this_week:
+        for n in r.get("actual", []):
+            actual_counter[n] += 1
+
+    # 出現次數最多的10個號碼 → 加強權重
+    top_actual = sorted(NUM_RANGE, key=lambda n: -actual_counter.get(n, 0))[:10]
+    for n in top_actual:
+        key = str(n)
+        state["weights"][key] = float(state["weights"].get(key, 1.0)) * 1.10
+
+    # 推薦準確率：在推薦且中的
+    hit_counter = defaultdict(int)
+    for r in this_week:
+        for n in set(r.get("picks", [])) & set(r.get("actual", [])):
+            hit_counter[n] += 1
+    top_hit = sorted(NUM_RANGE, key=lambda n: -hit_counter.get(n, 0))[:8]
+    for n in top_hit:
+        key = str(n)
+        state["weights"][key] = float(state["weights"].get(key, 1.0)) * 1.08
+
+    # 正規化
+    vals = list(state["weights"].values())
+    avg  = sum(vals) / len(vals)
+    if avg > 0:
+        state["weights"] = {k: float(v) / avg for k, v in state["weights"].items()}
+    _save_faker_learn(state)
+
+    # 30期累計
+    avg30 = round(sum(r["hits"] for r in history[-30:]) / len(history[-30:]), 2) if history else 0.0
+    gap   = round(TARGET_HITS - tw_avg, 2)
+
+    lines = [
+        "🃏 Faker 策略 週度深度學習報告",
+        "═" * 36,
+        f"🗓️  本週平均命中（{len(this_week)}日）：{tw_avg:.2f} 顆",
+        f"   上週平均命中：{lw_avg:.2f} 顆",
+        f"   週變化：{'+' if delta >= 0 else ''}{delta:.2f} 顆",
+        f"",
+        f"🎯 距目標差距",
+        f"   目標 5 顆全中 | 目前 {tw_avg:.2f} | 差 {gap:.2f} 顆",
+        f"",
+        f"🔥 本週高頻實際開出號碼（深度強化）",
+        f"   {top_actual}",
+        f"",
+        f"📊 30期累計平均命中：{avg30:.2f} 顆",
+        f"   累計學習期數：{state['total_rounds']}",
+        f"═" * 36,
+    ]
+    report_text = "\n".join(lines)
+
+    # 永久保存週報
+    weekly = _load_faker_weekly()
+    weekly.append({
+        "week_end":   datetime.now(_TW).strftime("%Y-%m-%d"),
+        "tw_avg":     tw_avg,
+        "lw_avg":     lw_avg,
+        "delta":      delta,
+        "avg30":      avg30,
+        "top_actual": top_actual,
+        "total_rounds": state["total_rounds"],
+        "report_text": report_text,
+    })
+    _save_faker_weekly(weekly)
+
+    return {
+        "ok":          True,
+        "tw_avg":      tw_avg,
+        "lw_avg":      lw_avg,
+        "delta":       delta,
+        "avg30":       avg30,
+        "total_rounds": state["total_rounds"],
+        "report_text": report_text,
+    }
+
+
+def get_faker_learn_summary() -> dict:
+    state = _load_faker_learn()
+    return {
+        "avg_hits":     state["avg_hits"],
+        "total_rounds": state["total_rounds"],
+        "last_updated": state["last_updated"],
+        "history":      state["history"][-7:],
+    }
 
 
 def faker_pick_from_records(records: list, window: int = 100) -> list[int]:
@@ -285,47 +493,47 @@ def faker_pick_from_records(records: list, window: int = 100) -> list[int]:
 
 def faker_pick(window: int = 100) -> list[int]:
     """
-    Faker 策略：從真實中獎人數反推「玩家最不愛選」的 5 個號碼。
+    Faker 策略（加入迭代學習）：
+    評分 = 60% Faker 原始分（低中獎人數）+ 40% 學習權重（歷史命中修正）
 
-    評分公式（分數越高 = 玩家越不選 = 台彩獲利越高）：
-      score(n) = 0.50 × (1 / avg_second_norm)   ← 二獎人數越少越好
-               + 0.30 × (1 / avg_jackpot_norm)  ← 頭獎越少越好
-               + 0.20 × avg_profit_rate_norm     ← 台彩獲利率越高越好
-
-    最終挑分數最高的 5 個號碼。
+    隨著每日學習，命中率越來越高，逼近 5 顆目標。
     """
     stats = analyze_low_winner_numbers(window=window)
     if not stats:
         return []
 
-    # 正規化各指標到 0~1
     seconds      = [stats[n]["avg_second"]      for n in NUM_RANGE]
     jackpots     = [stats[n]["avg_jackpot"]      for n in NUM_RANGE]
     profit_rates = [stats[n]["avg_profit_rate"]  for n in NUM_RANGE]
 
     def norm_inv(values, n_idx):
         mn, mx = min(values), max(values)
-        v = values[n_idx]
-        if mx == mn:
-            return 0.5
-        return 1.0 - (v - mn) / (mx - mn)  # 反轉：值越小分數越高
+        return 1.0 - (values[n_idx] - mn) / (mx - mn) if mx != mn else 0.5
 
     def norm(values, n_idx):
         mn, mx = min(values), max(values)
-        v = values[n_idx]
-        if mx == mn:
-            return 0.5
-        return (v - mn) / (mx - mn)
+        return (values[n_idx] - mn) / (mx - mn) if mx != mn else 0.5
 
-    scores = {}
+    # Faker 原始分（不選玩家愛選的號碼）
+    faker_scores = {}
     for i, n in enumerate(NUM_RANGE):
-        scores[n] = (
+        faker_scores[n] = (
             0.50 * norm_inv(seconds,      i) +
             0.30 * norm_inv(jackpots,     i) +
             0.20 * norm(profit_rates,     i)
         )
 
-    # 取分數最高 5 個
+    # 學習權重（命中修正）
+    learn_w = get_faker_learn_weights()
+    lw_vals = list(learn_w.values())
+    lw_min, lw_max = min(lw_vals), max(lw_vals)
+
+    scores = {}
+    for n in NUM_RANGE:
+        # 學習權重正規化到 0~1
+        lw_norm = (learn_w.get(n, 1.0) - lw_min) / (lw_max - lw_min) if lw_max != lw_min else 0.5
+        scores[n] = 0.60 * faker_scores[n] + 0.40 * lw_norm
+
     picked = sorted(NUM_RANGE, key=lambda n: -scores[n])[:5]
     return sorted(picked)
 
@@ -386,6 +594,9 @@ def update_faker_pick() -> dict:
     })
     save_faker_tracker(tracker)
 
+    # 觸發每日學習（更新號碼學習權重）
+    faker_daily_learn(latest["date"], today_nums, actual)
+
     return {
         "date":      latest["date"],
         "numbers":   today_nums,
@@ -422,6 +633,9 @@ def daily_report_text() -> str:
 
     hit_icons = "🎯" * faker_hits + "⬜" * (5 - faker_hits)
 
+    learn_summary = get_faker_learn_summary()
+    gap = round(TARGET_HITS - faker_avg, 2)
+
     lines = [
         f"🎯 今彩539 中獎分析報告",
         f"📅 {date_str}  期別：{latest['period']}",
@@ -440,7 +654,8 @@ def daily_report_text() -> str:
         f"今日開獎：{nums_str}",
         f"命中：{hit_icons}  {faker_hits}/5 顆",
         f"",
-        f"📈 歷史平均命中：{faker_avg} 顆／期（共 {faker_rounds} 期）",
+        f"📈 近30期平均命中：{faker_avg} 顆（目標5顆，差{gap:+.2f}）",
+        f"   累計學習：{learn_summary.get('total_rounds', 0)} 期",
         f"   （539 隨機期望值：5×5/39 ≈ 0.64 顆）",
         f"",
         f"🕙 更新時間：{data.get('last_fetched', 'N/A')}",

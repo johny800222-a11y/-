@@ -874,6 +874,32 @@ def api_prize_send_report():
         return jsonify({"ok": False, "msg": str(e)})
 
 
+@app.route("/api/faker/learn")
+def api_faker_learn():
+    """Faker 學習狀態"""
+    return jsonify({"ok": True, **prize_tracker.get_faker_learn_summary()})
+
+
+@app.route("/api/faker/weekly_report")
+def api_faker_weekly_report():
+    """手動觸發 Faker 週度深度學習報告"""
+    try:
+        report = prize_tracker.faker_weekly_deep_learn()
+        return jsonify(report)
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
+@app.route("/api/faker/weekly_history")
+def api_faker_weekly_history():
+    """Faker 週報歷史（永久保存）"""
+    from pathlib import Path
+    import json
+    f = Path("/data/faker_learn_weekly.json") if Path("/data").exists() else Path(__file__).parent / "faker_learn_weekly.json"
+    data = json.loads(f.read_text()) if f.exists() else []
+    return jsonify({"ok": True, "history": data})
+
+
 @app.route("/api/bingo/report")
 def api_bingo_report():
     df = bingo_core.load_data()
@@ -1081,14 +1107,24 @@ def _faker_noon_report():
 
 
 def _prize_report_routine():
-    """週一~週六 22:00：抓取最新中獎人數資料並傳送分析報告到 TG"""
+    """週一~週六 22:00：抓取最新中獎人數資料 + Faker 每日迭代學習 + 傳送 TG"""
     try:
         prize_tracker.update_prize_data()
-        text = prize_tracker.daily_report_text()
+        text = prize_tracker.daily_report_text()   # 內部已觸發 faker_daily_learn
         _send_telegram(text)
     except Exception:
         import traceback
         _morning_log["error"] = traceback.format_exc()
+
+
+def _faker_weekly_deep_learn():
+    """每週一 09:10：Faker 深度學習 + 週報推播 TG"""
+    try:
+        report = prize_tracker.faker_weekly_deep_learn()
+        if report.get("ok"):
+            _send_telegram(report["report_text"])
+    except Exception:
+        pass
 
 
 def _tw_now() -> str:
@@ -1162,6 +1198,7 @@ scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
 scheduler.add_job(_auto_update,           "cron", day_of_week="mon-sat", hour=21, minute=0)
 scheduler.add_job(_539_daily_learn,       "cron", day_of_week="mon-sat", hour=21, minute=5)
 scheduler.add_job(_539_weekly_report,     "cron", day_of_week="mon",     hour=9,  minute=5)
+scheduler.add_job(_faker_weekly_deep_learn, "cron", day_of_week="mon",   hour=9,  minute=10)
 scheduler.add_job(_bingo_auto_update,     "interval", minutes=5)
 # 每日投注快照（12:00 / 16:00 / 20:00）
 scheduler.add_job(_take_snapshot, "cron", hour=12, minute=0,  args=["12:00"])
