@@ -493,46 +493,62 @@ def faker_pick_from_records(records: list, window: int = 100) -> list[int]:
 
 def faker_pick(window: int = 100) -> list[int]:
     """
-    Faker 策略（加入迭代學習）：
-    評分 = 60% Faker 原始分（低中獎人數）+ 40% 學習權重（歷史命中修正）
+    Faker 策略（三層整合）：
 
-    隨著每日學習，命中率越來越高，逼近 5 顆目標。
+    評分 =
+      50% faker_crawler 分數（開出頻率 × 反玩家熱度 × 反網路推薦）
+      30% Faker 原始分（二獎/頭獎人數低）
+      20% 迭代學習權重（歷史命中修正）
+
+    三層信號讓推薦越來越逼近「台彩獲利最高 + 真實會開出」的最優解。
     """
+    # ── 信號A：爬蟲整合分（三信號綜合）────────────────────────────────
+    try:
+        import faker_crawler
+        crowd = faker_crawler.get_faker_recommendation()
+        crowd_scores = {int(k): float(v) for k, v in crowd.get("scores", {}).items()}
+    except Exception:
+        crowd_scores = {n: 0.5 for n in NUM_RANGE}
+
+    # ── 信號B：Faker 原始分（低中獎人數 = 少人買）────────────────────
     stats = analyze_low_winner_numbers(window=window)
-    if not stats:
-        return []
+    if stats:
+        seconds      = [stats[n]["avg_second"]  for n in NUM_RANGE]
+        jackpots     = [stats[n]["avg_jackpot"]  for n in NUM_RANGE]
+        profit_rates = [stats[n]["avg_profit_rate"] for n in NUM_RANGE]
 
-    seconds      = [stats[n]["avg_second"]      for n in NUM_RANGE]
-    jackpots     = [stats[n]["avg_jackpot"]      for n in NUM_RANGE]
-    profit_rates = [stats[n]["avg_profit_rate"]  for n in NUM_RANGE]
+        def norm_inv(values, n_idx):
+            mn, mx = min(values), max(values)
+            return 1.0 - (values[n_idx] - mn) / (mx - mn) if mx != mn else 0.5
+        def norm(values, n_idx):
+            mn, mx = min(values), max(values)
+            return (values[n_idx] - mn) / (mx - mn) if mx != mn else 0.5
 
-    def norm_inv(values, n_idx):
-        mn, mx = min(values), max(values)
-        return 1.0 - (values[n_idx] - mn) / (mx - mn) if mx != mn else 0.5
+        faker_base = {
+            n: (0.50 * norm_inv(seconds, i) +
+                0.30 * norm_inv(jackpots, i) +
+                0.20 * norm(profit_rates, i))
+            for i, n in enumerate(NUM_RANGE)
+        }
+    else:
+        faker_base = {n: 0.5 for n in NUM_RANGE}
 
-    def norm(values, n_idx):
-        mn, mx = min(values), max(values)
-        return (values[n_idx] - mn) / (mx - mn) if mx != mn else 0.5
-
-    # Faker 原始分（不選玩家愛選的號碼）
-    faker_scores = {}
-    for i, n in enumerate(NUM_RANGE):
-        faker_scores[n] = (
-            0.50 * norm_inv(seconds,      i) +
-            0.30 * norm_inv(jackpots,     i) +
-            0.20 * norm(profit_rates,     i)
-        )
-
-    # 學習權重（命中修正）
+    # ── 信號C：迭代學習權重（命中修正）──────────────────────────────
     learn_w = get_faker_learn_weights()
     lw_vals = list(learn_w.values())
     lw_min, lw_max = min(lw_vals), max(lw_vals)
+    learn_norm = {
+        n: (learn_w.get(n, 1.0) - lw_min) / (lw_max - lw_min) if lw_max != lw_min else 0.5
+        for n in NUM_RANGE
+    }
 
-    scores = {}
-    for n in NUM_RANGE:
-        # 學習權重正規化到 0~1
-        lw_norm = (learn_w.get(n, 1.0) - lw_min) / (lw_max - lw_min) if lw_max != lw_min else 0.5
-        scores[n] = 0.60 * faker_scores[n] + 0.40 * lw_norm
+    # ── 整合評分 ─────────────────────────────────────────────────────
+    scores = {
+        n: (0.50 * crowd_scores.get(n, 0.5) +
+            0.30 * faker_base.get(n, 0.5) +
+            0.20 * learn_norm.get(n, 0.5))
+        for n in NUM_RANGE
+    }
 
     picked = sorted(NUM_RANGE, key=lambda n: -scores[n])[:5]
     return sorted(picked)

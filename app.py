@@ -900,6 +900,31 @@ def api_faker_weekly_history():
     return jsonify({"ok": True, "history": data})
 
 
+@app.route("/api/faker/crowd_analysis")
+def api_faker_crowd_analysis():
+    """Faker 爬蟲分析結果（玩家熱度 + 台彩獲利最高組合）"""
+    try:
+        import faker_crawler
+        data = faker_crawler.get_faker_recommendation()
+        report = faker_crawler.generate_report_text(data)
+        return jsonify({"ok": True, "data": data, "report": report})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
+@app.route("/api/faker/refresh_crowd", methods=["POST"])
+def api_faker_refresh_crowd():
+    """手動觸發 Faker 爬蟲更新（重新抓取玩家熱度 + 推薦分析）"""
+    try:
+        import faker_crawler
+        data = faker_crawler.update_crowd_data()
+        report = faker_crawler.generate_report_text(data)
+        _send_telegram(report)
+        return jsonify({"ok": True, "top5": data.get("top5", [])})
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e)})
+
+
 @app.route("/api/bingo/report")
 def api_bingo_report():
     df = bingo_core.load_data()
@@ -1107,9 +1132,15 @@ def _faker_noon_report():
 
 
 def _prize_report_routine():
-    """週一~週六 22:00：抓取最新中獎人數資料 + Faker 每日迭代學習 + 傳送 TG"""
+    """週一~週六 22:00：抓取最新中獎人數 + Faker 爬蟲更新 + 每日迭代 + 傳送 TG"""
     try:
         prize_tracker.update_prize_data()
+        # Faker 爬蟲：更新玩家熱度 + 網路推薦 + 重算台彩獲利最高組合
+        try:
+            import faker_crawler
+            faker_crawler.update_crowd_data()
+        except Exception:
+            pass
         text = prize_tracker.daily_report_text()   # 內部已觸發 faker_daily_learn
         _send_telegram(text)
     except Exception:
