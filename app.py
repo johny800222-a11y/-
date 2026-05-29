@@ -1078,13 +1078,12 @@ def _bingo_midnight_learn():
 
 
 def _bingo_weekly_deep_learn():
-    """每週一 00:10：Bingo 深度學習 + 週報保存 + TG推播"""
+    """每週一 00:10：Bingo 深度學習（靜默），週報併入 _weekly_evolution_report"""
     try:
-        df   = bingo_core.load_data()
-        data = bingo_tracker.settle_snapshots(df) if df is not None else {}
-        report = bingo_learner.weekly_deep_learn(df)
-        if report.get("ok"):
-            _send_telegram(report["report_text"])
+        df = bingo_core.load_data()
+        if df is not None:
+            bingo_tracker.settle_snapshots(df)
+            bingo_learner.weekly_deep_learn(df)   # 學習 + 保存，不單獨推播
     except Exception:
         pass
 
@@ -1225,20 +1224,144 @@ def _539_daily_learn():
 
 
 def _539_weekly_report():
-    """每週一 09:05 發送 539 週度學習報告到 TG"""
+    """每週一 09:05：539 週深度學習（靜默），週報併入 _weekly_evolution_report"""
     try:
-        report = learner.weekly_deep_analysis()
-        if report.get("ok"):
-            _send_telegram(report["report_text"])
+        learner.weekly_deep_analysis()   # 學習 + 保存，不單獨推播
     except Exception:
         pass
+
+
+def _weekly_evolution_report():
+    """
+    每週一 09:15：整合週進化報告 → TG 推播
+    格式：本週結果 + 系統自動診斷 + 下週進化方向
+    """
+    try:
+        import datetime as _dt
+
+        # ── 取各系統本週數據 ──────────────────────────────────────
+        b_summary  = bingo_learner.get_summary()
+        l_summary  = learner.get_summary()
+        b_history  = b_summary.get("history", [])[-7:]
+        l_history  = l_summary.get("history", [])[-7:]
+        sw         = b_summary.get("strategy_weights", {})
+
+        avg6  = b_summary.get("avg_six_hits",  0)
+        avg9  = b_summary.get("avg_nine_hits", 0)
+        target6, target9 = 3.0, 4.0
+
+        # 539 近7期平均命中
+        prob_avg  = round(sum(r.get("prob_hits",     0) for r in l_history) / max(len(l_history), 1), 2)
+        val_avg   = round(sum(r.get("value_hits",    0) for r in l_history) / max(len(l_history), 1), 2)
+        strat_avg = round(sum(r.get("strategy_hits", 0) for r in l_history) / max(len(l_history), 1), 2)
+        best_539  = max(prob_avg, val_avg, strat_avg)
+        best_539_name = {prob_avg: "機率", val_avg: "價值", strat_avg: "策略"}[best_539]
+
+        # ── 自動診斷 ──────────────────────────────────────────────
+        diag_bingo = []
+        if avg6 < 2.0:
+            diag_bingo.append("6星嚴重低命中 → 下週加重 S3冷號策略比重")
+        elif avg6 < target6:
+            diag_bingo.append(f"6星命中 {avg6:.2f} 距目標差 {target6-avg6:.2f} → 維持現策略觀察")
+        else:
+            diag_bingo.append(f"✅ 6星已達目標 {avg6:.2f}！保持當前策略")
+
+        if avg9 < 2.5:
+            diag_bingo.append("9星嚴重低命中 → 下週加重 S1動能策略比重")
+        elif avg9 < target9:
+            diag_bingo.append(f"9星命中 {avg9:.2f} 距目標差 {target9-avg9:.2f} → 持續迭代")
+        else:
+            diag_bingo.append(f"✅ 9星已達目標 {avg9:.2f}！保持當前策略")
+
+        # 策略投票權重排名
+        sw_sorted = sorted(sw.items(), key=lambda x: x[1], reverse=True)
+        sw_name = {"s1_momentum":"超短動能","s2_hot":"短期熱號","s3_cold":"冷號回歸",
+                   "s4_cooccur":"強力共現","s5_zone":"區間峰值","s6_learner":"學習模型"}
+        top_strategy   = sw_name.get(sw_sorted[0][0], sw_sorted[0][0]) if sw_sorted else "-"
+        worst_strategy = sw_name.get(sw_sorted[-1][0], sw_sorted[-1][0]) if sw_sorted else "-"
+
+        diag_539 = []
+        if best_539 < 1.5:
+            diag_539.append("539 命中嚴重不足 → 下週擴大學習衰減率")
+        elif best_539 < 2.5:
+            diag_539.append(f"539 最佳策略「{best_539_name}」{best_539:.2f}顆 → 加重其投票比重")
+        else:
+            diag_539.append(f"✅ 539「{best_539_name}」命中 {best_539:.2f}顆 表現佳")
+
+        # ── 下週進化方向 ──────────────────────────────────────────
+        next_actions = []
+
+        # Bingo 進化
+        if avg6 < 2.0 or avg9 < 2.5:
+            next_actions.append("🔧 Bingo：本週命中不足，系統已自動調低劣策略投票權重")
+        if avg6 >= target6 and avg9 >= target9:
+            next_actions.append("🎯 Bingo：雙目標達成！策略維持現狀，持續收集數據驗證")
+        else:
+            next_actions.append(f"📈 Bingo：強化策略「{top_strategy}」(本週最佳)，削減「{worst_strategy}」比重")
+
+        # 539 進化
+        next_actions.append(f"📊 539：加重「{best_539_name}推薦」投票比重至下週")
+
+        # Faker
+        try:
+            faker_s = prize_tracker.get_faker_learn_summary()
+            f_avg   = faker_s.get("recent_avg_hits", 0)
+            if f_avg < 3:
+                next_actions.append(f"🃏 Faker：近期命中 {f_avg:.1f}/5，下週加強爬蟲更新頻率")
+            else:
+                next_actions.append(f"🃏 Faker：命中 {f_avg:.1f}/5 正常，持續迭代")
+        except Exception:
+            pass
+
+        # ── 組裝報告 ──────────────────────────────────────────────
+        week_str = _dt.datetime.now(pytz.timezone("Asia/Taipei")).strftime("%Y-%m-%d")
+        lines = [
+            f"📋 週進化報告 {week_str}",
+            "═" * 36,
+            "",
+            "🎯 本週結果",
+            f"  Bingo 6星：{avg6:.2f} 顆  (目標 {target6})",
+            f"  Bingo 9星：{avg9:.2f} 顆  (目標 {target9})",
+            f"  539 最佳命中：{best_539:.2f} 顆（{best_539_name}策略）",
+            "",
+            "🔍 系統診斷",
+        ]
+        for d in diag_bingo + diag_539:
+            lines.append(f"  {d}")
+
+        lines += [
+            "",
+            "⚙️  策略投票權重（已自動更新）",
+        ]
+        for k, v in sw_sorted[:3]:
+            lines.append(f"  {sw_name.get(k,k)}：{v:.2f}")
+
+        lines += [
+            "",
+            "🚀 下週進化方向",
+        ]
+        for a in next_actions:
+            lines.append(f"  {a}")
+
+        lines += [
+            "",
+            f"  累計學習：Bingo {b_summary.get('total_rounds',0)} 期 ／ 539 {l_summary.get('total_rounds',0)} 期",
+            "═" * 36,
+        ]
+
+        _send_telegram("\n".join(lines))
+
+    except Exception:
+        import traceback
+        print("weekly evolution report error:", traceback.format_exc())
 
 
 scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
 scheduler.add_job(_auto_update,           "cron", day_of_week="mon-sat", hour=21, minute=0)
 scheduler.add_job(_539_daily_learn,       "cron", day_of_week="mon-sat", hour=21, minute=5)
-scheduler.add_job(_539_weekly_report,     "cron", day_of_week="mon",     hour=9,  minute=5)
-scheduler.add_job(_faker_weekly_deep_learn, "cron", day_of_week="mon",   hour=9,  minute=10)
+scheduler.add_job(_539_weekly_report,        "cron", day_of_week="mon", hour=9, minute=5)
+scheduler.add_job(_faker_weekly_deep_learn,  "cron", day_of_week="mon", hour=9, minute=10)
+scheduler.add_job(_weekly_evolution_report,  "cron", day_of_week="mon", hour=9, minute=15)
 scheduler.add_job(_bingo_auto_update,     "interval", minutes=5)
 # 每日投注快照（12:00 / 16:00 / 20:00）
 scheduler.add_job(_take_snapshot, "cron", hour=12, minute=0,  args=["12:00"])
