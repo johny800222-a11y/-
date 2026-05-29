@@ -124,9 +124,11 @@ def settle_snapshots(df):
             w9 = PRIZE_9.get(h9, 0)
             slot_win += w6 + w9
 
+            # 記錄實際開獎號碼（供學習器精準學習：知道哪幾顆命中）
             results.append({
-                "period": str(row["period"]),
-                "six_hits": h6, "six_win": w6,
+                "period":    str(row["period"]),
+                "drawn":     sorted(drawn),   # ← 實際開獎號碼
+                "six_hits":  h6, "six_win":  w6,
                 "nine_hits": h9, "nine_win": w9,
             })
 

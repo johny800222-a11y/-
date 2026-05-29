@@ -642,8 +642,21 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
     ball_cols  = [c for c in df.columns if c.startswith("n") and c[1:].isdigit()]
 
     # ══════════════════════════════════════════════════════════════
-    # 共用統計資料
+    # 窗口設計（以天數換算期數，上限 90 天）
+    # Bingo 每天 ~288 期（每5分鐘一期）
     # ══════════════════════════════════════════════════════════════
+    DRAWS_PER_DAY = 288
+
+    def days(d):
+        return min(d * DRAWS_PER_DAY, total_rows)
+
+    wU  = min(5,         total_rows)   # 超短期：最近5期（~25分鐘）
+    wS  = days(0.2)                    # 短期：最近~4小時（~50期）
+    w1d = days(1)                      # 1天 (~288期)
+    w7d = days(7)                      # 7天 (~2016期)
+    w30d= days(30)                     # 30天 (~8640期)
+    w90d= days(90)                     # 90天上限 (~25920期)
+
     def freq_counter(rows):
         c = Counter()
         for _, row in rows.iterrows():
@@ -651,37 +664,35 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
                 c[int(row[col])] += 1
         return c
 
-    w3   = min(3,   total_rows)
-    w8   = min(8,   total_rows)
-    w20  = min(20,  total_rows)
-    w50  = min(50,  total_rows)
-    w100 = min(100, total_rows)
-    w200 = min(200, total_rows)
+    freqU  = freq_counter(df.tail(wU))
+    freqS  = freq_counter(df.tail(wS))
+    freq1d = freq_counter(df.tail(w1d))
+    freq7d = freq_counter(df.tail(w7d))
+    freq30d= freq_counter(df.tail(w30d))
 
-    freq3   = freq_counter(df.tail(w3))
-    freq8   = freq_counter(df.tail(w8))
-    freq20  = freq_counter(df.tail(w20))
-    freq50  = freq_counter(df.tail(w50))
-    freq100 = freq_counter(df.tail(w100))
+    def exp(w):
+        return max(w * 20 / 80, 0.001)
 
-    exp3   = max(w3   * 20 / 80, 0.001)
-    exp8   = max(w8   * 20 / 80, 0.001)
-    exp20  = max(w20  * 20 / 80, 0.001)
-    exp50  = max(w50  * 20 / 80, 0.001)
-    exp100 = max(w100 * 20 / 80, 0.001)
+    expU   = exp(wU)
+    expS   = exp(wS)
+    exp1d  = exp(w1d)
+    exp7d  = exp(w7d)
+    exp30d = exp(w30d)
 
-    # 遺漏期數
+    # 遺漏期數（以90天資料計算）
+    recent90 = df.tail(w90d)
     last_seen = {}
-    for i, row_nums in enumerate(df[NUM_COLS].values.tolist()):
+    for i, row_nums in enumerate(recent90[NUM_COLS].values.tolist()):
         for n in row_nums:
             last_seen[int(n)] = i
+    n90 = len(recent90)
     expected_gap = 80 / 20   # 每球平均 4 期一次
 
     def miss_periods(n):
-        return total_rows - 1 - last_seen.get(n, 0)
+        return n90 - 1 - last_seen.get(n, 0)
 
-    # 共現矩陣（近100期）
-    comat = cooccurrence_matrix(df, w100)
+    # 共現矩陣（近7天，窗口夠大才有統計意義）
+    comat = cooccurrence_matrix(df, w7d)
     sorted_pairs = sorted(comat.items(), key=lambda x: x[1], reverse=True)
     max_comat = max(comat.values()) if comat else 1
 
@@ -723,35 +734,34 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
     def top_n_from(scores_dict, n):
         return sorted(BALL_RANGE, key=lambda x: scores_dict.get(x, 0), reverse=True)[:n]
 
-    # S1：超短期動能 — 最近3期頻率 + 最近8期頻率加權
+    # S1：超短期動能 — 最近5期 + 4小時頻率（追當前熱球）
     s1_scores = {}
     for n in BALL_RANGE:
-        r3 = freq3.get(n, 0) / exp3
-        r8 = freq8.get(n, 0) / exp8
-        s1_scores[n] = r3 * 0.6 + r8 * 0.4
+        rU = freqU.get(n, 0) / expU
+        rS = freqS.get(n, 0) / expS
+        s1_scores[n] = rU * 0.65 + rS * 0.35
     s1_nom6 = top_n_from(s1_scores, NOM6)
     s1_nom9 = top_n_from(s1_scores, NOM9)
 
-    # S2：短期熱號 — 近20期 + 近50期頻率
+    # S2：短期熱號 — 近1天 + 近7天頻率（抓日週趨勢）
     s2_scores = {}
     for n in BALL_RANGE:
-        r20 = freq20.get(n, 0) / exp20
-        r50 = freq50.get(n, 0) / exp50
-        s2_scores[n] = r20 * 0.65 + r50 * 0.35
+        r1d = freq1d.get(n, 0) / exp1d
+        r7d = freq7d.get(n, 0) / exp7d
+        s2_scores[n] = r1d * 0.60 + r7d * 0.40
     s2_nom6 = top_n_from(s2_scores, NOM6)
     s2_nom9 = top_n_from(s2_scores, NOM9)
 
-    # S3：冷號回歸 — 遺漏期數超過期望值越多，分數越高
+    # S3：冷號回歸 — 遺漏期數超過期望值越多，分數越高（以90天為基準）
     s3_scores = {}
     for n in BALL_RANGE:
-        miss = miss_periods(n)
-        # 遺漏越長越加分，但有上限
+        miss  = miss_periods(n)
         ratio = miss / expected_gap
-        s3_scores[n] = min(ratio, 8.0)   # 最多8倍加成
+        s3_scores[n] = min(ratio, 8.0)
     s3_nom6 = top_n_from(s3_scores, NOM6)
     s3_nom9 = top_n_from(s3_scores, NOM9)
 
-    # S4：強力共現 — 近100期共現強度最高
+    # S4：強力共現 — 近7天共現強度最高（窗口夠大有統計意義）
     s4_scores = {}
     max_ps = max(pair_strength.values()) if pair_strength else 1
     for n in BALL_RANGE:
@@ -759,24 +769,23 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
     s4_nom6 = top_n_from(s4_scores, NOM6)
     s4_nom9 = top_n_from(s4_scores, NOM9)
 
-    # S5：區間峰值 — 每個區間(1-20/21-40/41-60/61-80)取最熱的 NOM6/4 顆
-    # 用近50期頻率找各區間頂尖球
+    # S5：區間峰值 — 每個區間(1-20/21-40/41-60/61-80)取最熱
+    # 用近30天頻率找各區間頂尖球（月度視角）
     zones = [range(1, 21), range(21, 41), range(41, 61), range(61, 81)]
     s5_nom6, s5_nom9 = [], []
     per_zone6 = max(1, NOM6 // 4)
     per_zone9 = max(1, NOM9 // 4)
     for z in zones:
-        zone_ranked = sorted(z, key=lambda n: freq50.get(n, 0), reverse=True)
+        zone_ranked = sorted(z, key=lambda n: freq30d.get(n, 0), reverse=True)
         s5_nom6.extend(zone_ranked[:per_zone6])
         s5_nom9.extend(zone_ranked[:per_zone9])
-    # 補不夠的
-    all_by_freq50 = sorted(BALL_RANGE, key=lambda n: freq50.get(n, 0), reverse=True)
-    for n in all_by_freq50:
+    all_by_freq30d = sorted(BALL_RANGE, key=lambda n: freq30d.get(n, 0), reverse=True)
+    for n in all_by_freq30d:
         if len(s5_nom6) >= NOM6:
             break
         if n not in s5_nom6:
             s5_nom6.append(n)
-    for n in all_by_freq50:
+    for n in all_by_freq30d:
         if len(s5_nom9) >= NOM9:
             break
         if n not in s5_nom9:
@@ -811,9 +820,9 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
             combo_score[n] = (
                 s1_scores.get(n, 0) * sw["s1_momentum"] +
                 s2_scores.get(n, 0) * sw["s2_hot"] +
-                s3_scores.get(n, 0) / 8 * sw["s3_cold"] +   # 正規化到 0~1
+                s3_scores.get(n, 0) / 8 * sw["s3_cold"] +
                 s4_scores.get(n, 0) * sw["s4_cooccur"] +
-                freq50.get(n, 0) / exp50 * sw["s5_zone"] +
+                freq1d.get(n, 0) / exp1d * sw["s5_zone"] +
                 s6_scores.get(n, 0) * sw["s6_learner"]
             )
 
@@ -846,7 +855,7 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
     # ══════════════════════════════════════════════════════════════
     # 供前端顯示的附加資訊
     # ══════════════════════════════════════════════════════════════
-    hot_short = hot_numbers(df, w20)
+    hot_short = hot_numbers(df, w1d)   # 近1天為熱號基準
     hot_top10 = sorted(hot_short, key=lambda x: x["cnt"], reverse=True)[:10]
     hot_max   = max((x["cnt"] for x in hot_short), default=1)
 
@@ -854,8 +863,8 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
         {"a": a, "b": b, "cnt": cnt, "pct": round(cnt / max_comat * 100)}
         for (a, b), cnt in sorted_pairs[:4]
     ]
-    triplets       = triplet_cooccurrence(df, window=w100, top_n=5)
-    consec_freq_d  = consecutive_pair_freq(df, window=w100)
+    triplets       = triplet_cooccurrence(df, window=w7d, top_n=5)
+    consec_freq_d  = consecutive_pair_freq(df, window=w7d)
     top_consec     = [
         {"a": a, "b": b, "cnt": cnt}
         for (a, b), cnt in sorted(consec_freq_d.items(), key=lambda x: x[1], reverse=True)[:5]

@@ -114,36 +114,59 @@ def get_strategy_weights() -> dict[str, float]:
 
 # ── 基礎權重計算 ──────────────────────────────────────────────────────────────
 
+DRAWS_PER_DAY = 288   # Bingo 每天約 288 期
+
 def _calc_base_weights(df) -> dict[int, float]:
-    """短期熱度 × 長期基線 × 冷號遺漏補正"""
+    """
+    以天數為單位的四層基礎權重：
+      近1天 × 近7天 × 近30天（上限90天）× 冷號遺漏補正
+    窗口設計：上限 90 天，近期資料權重更大
+    """
     import bingo_core
     num_cols = bingo_core.NUM_COLS
+    total    = len(df)
 
-    short_df = df.tail(SHORT_WIN)
-    long_df  = df.tail(LONG_WIN)
+    def days_win(d):
+        return min(d * DRAWS_PER_DAY, total)
 
-    short_cnt = Counter(short_df[num_cols].values.flatten().tolist())
-    long_cnt  = Counter(long_df[num_cols].values.flatten().tolist())
+    w1d  = days_win(1)
+    w7d  = days_win(7)
+    w30d = days_win(30)
+    w90d = days_win(90)
 
-    short_avg = sum(short_cnt.values()) / len(NUM_RANGE)
-    long_avg  = sum(long_cnt.values())  / len(NUM_RANGE)
+    def cnt_map(n_rows):
+        c = Counter(df.tail(n_rows)[num_cols].values.flatten().tolist())
+        avg = sum(c.values()) / len(NUM_RANGE)
+        return c, avg
 
-    all_periods = df[num_cols].values.tolist()
+    cnt1d,  avg1d  = cnt_map(w1d)
+    cnt7d,  avg7d  = cnt_map(w7d)
+    cnt30d, avg30d = cnt_map(w30d)
+
+    # 遺漏期數（以90天為基準）
+    base90 = df.tail(w90d)[num_cols].values.tolist()
     last_seen = {}
-    for i, row in enumerate(all_periods):
+    for i, row in enumerate(base90):
         for n in row:
             last_seen[int(n)] = i
-    total = len(all_periods)
+    total90      = len(base90)
+    expected_gap = 80 / 20   # 每球平均 4 期一次
 
     weights = {}
     for n in NUM_RANGE:
-        short_ratio = short_cnt.get(n, 0) / short_avg if short_avg else 1.0
-        long_ratio  = long_cnt.get(n, 0)  / long_avg  if long_avg  else 1.0
-        miss        = total - 1 - last_seen.get(n, 0)
-        expected_gap = len(NUM_RANGE) / 20
-        miss_ratio  = min(MISS_BOOST_MAX, 1.0 + 0.7 * (miss - expected_gap) / max(expected_gap, 1))
-        miss_ratio  = max(0.7, miss_ratio)
-        weights[n]  = (short_ratio * 0.65 + long_ratio * 0.35) * miss_ratio
+        r1d  = cnt1d.get(n, 0)  / avg1d  if avg1d  else 1.0
+        r7d  = cnt7d.get(n, 0)  / avg7d  if avg7d  else 1.0
+        r30d = cnt30d.get(n, 0) / avg30d if avg30d else 1.0
+
+        # 近期加權：1天 > 7天 > 30天
+        base = r1d * 0.50 + r7d * 0.35 + r30d * 0.15
+
+        # 冷號遺漏補正
+        miss       = total90 - 1 - last_seen.get(n, 0)
+        miss_ratio = min(MISS_BOOST_MAX, 1.0 + 0.7 * (miss - expected_gap) / max(expected_gap, 1))
+        miss_ratio = max(0.7, miss_ratio)
+
+        weights[n] = base * miss_ratio
 
     avg = sum(weights.values()) / len(weights)
     if avg > 0:
@@ -247,23 +270,44 @@ def daily_update(tracker_data: dict, df=None) -> dict:
             six_rate  = six_hits  / 6
             nine_rate = nine_hits / 9
 
-            # 六星命中回饋
-            if six_hits >= 3:
-                for n in six:
-                    factor = 1.0 + 0.10 * six_hits
-                    state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * factor
-            elif six_hits <= 1:
-                for n in six:
-                    state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * 0.96
+            # ── 精準學習：用實際開獎號碼 drawn 直接強化/懲罰 ──────────
+            drawn_set = set(result.get("drawn", []))
 
-            # 九星命中回饋
-            if nine_hits >= 4:
+            if drawn_set:
+                # 推薦的號碼：命中的加成，未命中的輕微懲罰
+                for n in six:
+                    if n in drawn_set:
+                        # 推薦且命中 → 強加成
+                        boost = 1.0 + 0.12 * (1 + six_hits * 0.05)
+                        state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * boost
+                    else:
+                        # 推薦但未命中 → 輕微懲罰
+                        state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * 0.97
+
                 for n in nine:
-                    factor = 1.0 + 0.07 * nine_hits
-                    state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * factor
-            elif nine_hits <= 2:
-                for n in nine:
-                    state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * 0.97
+                    if n in drawn_set:
+                        boost = 1.0 + 0.09 * (1 + nine_hits * 0.04)
+                        state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * boost
+                    else:
+                        state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * 0.98
+
+            else:
+                # 舊快照沒有 drawn → fallback 到命中數代理
+                if six_hits >= 3:
+                    for n in six:
+                        factor = 1.0 + 0.10 * six_hits
+                        state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * factor
+                elif six_hits <= 1:
+                    for n in six:
+                        state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * 0.96
+
+                if nine_hits >= 4:
+                    for n in nine:
+                        factor = 1.0 + 0.07 * nine_hits
+                        state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * factor
+                elif nine_hits <= 2:
+                    for n in nine:
+                        state["weights"][str(n)] = float(state["weights"].get(str(n), 1.0)) * 0.97
 
             # 時段偏好更新
             if six_hits >= 3 and slot in state["slot_hits"]:
