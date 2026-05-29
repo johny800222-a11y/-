@@ -694,6 +694,36 @@ def weekly_deep_learn(df=None) -> dict:
     }
 
 
+def intraday_update(df) -> dict:
+    """
+    盤中即時學習（每2小時呼叫）：
+    重算基礎權重追蹤最新趨勢，用「新70% + 舊30%」混合保留學習成果。
+    不觸動 history / total_rounds，只更新 weights。
+    """
+    state = load_state()
+    if df is None or df.empty:
+        return {"ok": False, "reason": "no data"}
+
+    new_base = _calc_base_weights(df)
+
+    # 混合：保留 30% 的累積學習權重，70% 換成最新趨勢
+    for n in NUM_RANGE:
+        old_w = float(state["weights"].get(str(n), 1.0))
+        new_w = new_base.get(n, 1.0)
+        state["weights"][str(n)] = new_w * 0.70 + old_w * 0.30
+
+    # 重新正規化
+    vals = [float(v) for v in state["weights"].values()]
+    avg  = sum(vals) / len(vals)
+    if avg > 0:
+        state["weights"] = {k: float(v) / avg for k, v in state["weights"].items()}
+
+    now_str = datetime.now(_TW).strftime("%Y-%m-%d %H:%M")
+    state["last_intraday"] = now_str
+    save_state(state)
+    return {"ok": True, "time": now_str}
+
+
 def get_weights_for_slot(slot: str) -> dict[int, float]:
     state = load_state()
     base  = {int(k): v for k, v in state["weights"].items()}

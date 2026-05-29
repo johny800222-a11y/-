@@ -1247,6 +1247,18 @@ scheduler.add_job(_take_snapshot, "cron", hour=20, minute=0,  args=["20:00"])
 # 00:00 Bingo 迭代學習（開獎 07:05~23:55 結束後）
 scheduler.add_job(_bingo_midnight_learn,      "cron", hour=0,  minute=5)
 scheduler.add_job(_bingo_weekly_deep_learn,   "cron", day_of_week="mon", hour=0, minute=10)
+# Bingo 盤中即時學習：每2小時更新一次球號權重（追蹤盤中趨勢）
+def _bingo_intraday_learn():
+    """每2小時盤中即時更新 Bingo 球號權重"""
+    try:
+        df = bingo_core.load_data()
+        if df is not None and not df.empty:
+            bingo_learner.intraday_update(df)
+    except Exception:
+        pass
+
+for _h in [2, 4, 6, 8, 10, 14, 16, 18, 20, 22]:   # 每2小時，避開快照時段
+    scheduler.add_job(_bingo_intraday_learn, "cron", hour=_h, minute=30)
 # 09:00 傳送每日 TG 報告
 scheduler.add_job(_morning_routine,       "cron", hour=9, minute=0)
 # 每日 12:00 傳送 Faker 推薦

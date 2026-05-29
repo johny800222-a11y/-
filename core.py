@@ -108,16 +108,84 @@ def load_data() -> pd.DataFrame | None:
     return pd.read_csv(DATA_FILE, parse_dates=["date"])
 
 
+# ── 和值統計（從歷史資料動態計算）────────────────────────────────────────────
+
+_SUM_RANGE_CACHE: tuple | None = None   # (p15, p85) 懶加載快取
+
+def _get_sum_range(df: pd.DataFrame) -> tuple[int, int]:
+    """
+    從歷史資料計算 5 顆號碼和值的 15th~85th percentile（動態更新）。
+    539 歷史和值通常集中在 65~125 之間，使用百分位讓它跟著資料走。
+    """
+    global _SUM_RANGE_CACHE
+    if _SUM_RANGE_CACHE is not None:
+        return _SUM_RANGE_CACHE
+    try:
+        sums = sorted(
+            int(row["n1"]) + int(row["n2"]) + int(row["n3"]) + int(row["n4"]) + int(row["n5"])
+            for _, row in df.tail(500).iterrows()
+        )
+        n = len(sums)
+        p15 = sums[max(0, int(n * 0.15))]
+        p85 = sums[min(n - 1, int(n * 0.85))]
+        _SUM_RANGE_CACHE = (p15, p85)
+        return _SUM_RANGE_CACHE
+    except Exception:
+        return (65, 125)   # 保守預設
+
+
+def _apply_sum_constraint(nums: list[int], df: pd.DataFrame,
+                          pool_weights: dict[int, float]) -> list[int]:
+    """
+    和值約束後處理：若5顆號碼的和不在歷史典型範圍，
+    替換一顆讓和值回到合理區間，用 pool_weights 選最佳替換球。
+    最多嘗試 3 輪替換，避免破壞其他特性。
+    """
+    lo, hi = _get_sum_range(df)
+    result = list(nums)
+
+    for _ in range(3):
+        s = sum(result)
+        if lo <= s <= hi:
+            break
+
+        if s < lo:
+            # 和太小 → 換掉最小的球，換成更大的
+            target_n = min(result)
+            result.remove(target_n)
+            need_add = lo - sum(result)   # 需要補多少
+            candidates = sorted(
+                [n for n in BALL_RANGE if n not in result and n > target_n],
+                key=lambda n: (abs(n - need_add - 0) , -pool_weights.get(n, 0))
+            )
+        else:
+            # 和太大 → 換掉最大的球，換成更小的
+            target_n = max(result)
+            result.remove(target_n)
+            need_sub = sum(result) + target_n - hi   # 需要減多少
+            candidates = sorted(
+                [n for n in BALL_RANGE if n not in result and n < target_n],
+                key=lambda n: (abs(target_n - n - need_sub), -pool_weights.get(n, 0))
+            )
+
+        if candidates:
+            result.append(candidates[0])
+
+    return sorted(result)
+
+
 # ── 共用過濾 ──────────────────────────────────────────────────────────────────
 
-def _ok(nums: list[int]) -> bool:
+def _ok(nums: list[int], df: pd.DataFrame = None) -> bool:
     if len(set(nums)) != 5:
         return False
     odds = sum(1 for n in nums if n % 2 != 0)
-    if not (odds in (2, 3) and 60 <= sum(nums) <= 140):
+    s    = sum(nums)
+    if odds not in (2, 3):
         return False
-    # 允許連號（不過度限制，因為真實資料連號很常見）
-    return True
+    # 動態和值範圍（有 df 時用歷史計算，沒有用保守預設）
+    lo, hi = _get_sum_range(df) if df is not None else (60, 140)
+    return lo <= s <= hi
 
 
 # ── 策略A：機率推薦（長期頻率 × 學習權重 × 遺漏修正）───────────────────────
@@ -145,10 +213,11 @@ def recommend_best(df: pd.DataFrame, learn_weights: dict[int, float] | None = No
         w *= min(1.4, 1.0 + 0.2 * adj / max(avg_r50, 1))
         weights.append(max(w, 0.01))
 
+    pw = {n: weights[i] for i, n in enumerate(pool)}
     for _ in range(50000):
         chosen = sorted(set(random.choices(pool, weights=weights, k=10)))[:5]
-        if len(chosen) == 5 and _ok(chosen):
-            return chosen
+        if len(chosen) == 5 and _ok(chosen, df):
+            return _apply_sum_constraint(chosen, df, pw)
     return sorted(random.sample(BALL_RANGE, 5))
 
 
@@ -208,10 +277,11 @@ def value_recommend(df: pd.DataFrame, learn_weights: dict[int, float] | None = N
         w *= (learn_weights.get(n, 1.0) if learn_weights else 1.0)
         weights.append(max(w, 0.05))
 
+    pw = {n: weights[i] for i, n in enumerate(pool)}
     for _ in range(50000):
         chosen = sorted(set(random.choices(pool, weights=weights, k=10)))[:5]
-        if len(chosen) == 5 and _ok(chosen):
-            return chosen
+        if len(chosen) == 5 and _ok(chosen, df):
+            return _apply_sum_constraint(chosen, df, pw)
     return sorted(random.sample(BALL_RANGE, 5))
 
 
@@ -285,7 +355,7 @@ def strategy_recommend(df: pd.DataFrame) -> dict:
     candidates_pool = list(set(hot_nums[:6] + cold_nums[:3] + tail_candidates[:6] + picked))
     result = sorted(picked[:5])
     for combo in itertools.combinations(candidates_pool, 5):
-        if _ok(list(combo)):
+        if _ok(list(combo), df):
             result = sorted(combo)
             break
 
@@ -342,11 +412,13 @@ def ensemble_recommend(
     # 取票數前10，再從中過濾出5碼
     top10 = sorted(vote, key=vote.get, reverse=True)[:10]
     for combo in itertools.combinations(top10, 5):
-        if _ok(list(combo)):
-            return sorted(combo)
+        if _ok(list(combo), df):
+            result = sorted(combo)
+            return _apply_sum_constraint(result, df, vote)
 
-    # fallback：直接取最高票5碼
-    return sorted(top10[:5])
+    # fallback：直接取最高票5碼，再套和值約束
+    base = sorted(top10[:5])
+    return _apply_sum_constraint(base, df, vote)
 
 
 # ── 統計 ──────────────────────────────────────────────────────────────────────

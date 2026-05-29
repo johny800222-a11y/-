@@ -734,12 +734,25 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
     def top_n_from(scores_dict, n):
         return sorted(BALL_RANGE, key=lambda x: scores_dict.get(x, 0), reverse=True)[:n]
 
-    # S1：超短期動能 — 最近5期 + 4小時頻率（追當前熱球）
+    # ── 熱度方向偵測（動能 vs 衰退）─────────────────────────────────
+    # 比較超短期(5期)頻率 vs 短期(4小時)基線，判斷各球是在升溫還是降溫
+    # trajectory > 1.2 = 升溫（動能球）; < 0.8 = 降溫（衰退球）
+    def heat_trajectory(n):
+        rate_now  = freqU.get(n, 0) / expU     # 最近5期出現率
+        rate_base = freqS.get(n, 0) / expS     # 4小時基線
+        if rate_base < 0.01:
+            return 1.0
+        t = rate_now / rate_base
+        # 限制倍率：最多 ×1.8（升溫）/ 最低 ×0.6（強衰退）
+        return max(0.6, min(1.8, t))
+
+    # S1：超短期動能 — 最近5期 + 4小時頻率（追當前熱球）+ 熱度方向加成
     s1_scores = {}
     for n in BALL_RANGE:
         rU = freqU.get(n, 0) / expU
         rS = freqS.get(n, 0) / expS
-        s1_scores[n] = rU * 0.65 + rS * 0.35
+        base = rU * 0.65 + rS * 0.35
+        s1_scores[n] = base * heat_trajectory(n)   # 升溫球加分，衰退球減分
     s1_nom6 = top_n_from(s1_scores, NOM6)
     s1_nom9 = top_n_from(s1_scores, NOM9)
 
@@ -849,8 +862,40 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
         ("s6_learner",  s6_nom9),
     ]
 
-    six,  votes6, combo6 = vote_and_pick(nom_pairs_6, nom_pairs_9, sw, 6)
-    nine, votes9, combo9 = vote_and_pick(nom_pairs_6, nom_pairs_9, sw, 9)
+    six_raw,  votes6, combo6 = vote_and_pick(nom_pairs_6, nom_pairs_9, sw, 6)
+    nine_raw, votes9, combo9 = vote_and_pick(nom_pairs_6, nom_pairs_9, sw, 9)
+
+    # ── 區間分散強制：避免全部集中在同一個20號區間 ─────────────────
+    # 80個球分4區（1-20/21-40/41-60/61-80），6星最多允許同區3球
+    def diversify(picks, target_n, max_same_zone=3):
+        """
+        若某區球數超過 max_same_zone，
+        用該區外分數最高的球替換掉該區分數最低的球。
+        """
+        result = list(picks)
+        for attempt in range(10):
+            zone_cnt = {0: [], 1: [], 2: [], 3: []}
+            for n in result:
+                zone_cnt[(n - 1) // 20].append(n)
+
+            overcrowded = {z: ns for z, ns in zone_cnt.items() if len(ns) > max_same_zone}
+            if not overcrowded:
+                break
+
+            for z, ns in overcrowded.items():
+                # 要替換掉的：此區分數最低的球
+                weakest = min(ns, key=lambda n: combo6.get(n, 0))
+                result.remove(weakest)
+                # 補入：不在 result 裡、不在過滿區、分數最高的
+                excluded = set(result)
+                for n in sorted(BALL_RANGE, key=lambda x: votes6.get(x, 0) + combo6.get(x, 0) * 0.01, reverse=True):
+                    if n not in excluded and (n - 1) // 20 != z:
+                        result.append(n)
+                        break
+        return result[:target_n]
+
+    six  = diversify(six_raw,  6, max_same_zone=3)
+    nine = diversify(nine_raw, 9, max_same_zone=4)
 
     # ══════════════════════════════════════════════════════════════
     # 供前端顯示的附加資訊
