@@ -648,7 +648,7 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
     DRAWS_PER_DAY = 288
 
     def days(d):
-        return min(d * DRAWS_PER_DAY, total_rows)
+        return int(min(d * DRAWS_PER_DAY, total_rows))
 
     wU  = min(5,         total_rows)   # 超短期：最近5期（~25分鐘）
     wS  = days(0.2)                    # 短期：最近~4小時（~50期）
