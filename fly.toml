@@ -1,0 +1,29 @@
+# Fly.io 設定 — 今彩539 + Bingo Bingo 推薦系統
+app = "lottery-app-tw"
+primary_region = "nrt"   # 東京，離台灣最近
+
+[build]
+  builder = "paketobuildpacks/builder:base"
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https   = true
+  auto_stop_machines  = false   # 必須常駐（APScheduler 定時任務）
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type       = "connections"
+    hard_limit = 25
+    soft_limit = 20
+
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "256mb"
+
+[[mounts]]
+  source      = "lottery_data"
+  destination = "/data"
