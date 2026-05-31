@@ -1036,7 +1036,8 @@ def _take_snapshot(slot_label: str):
         pass
 
 
-_morning_log = {"last_run": None, "result": None, "error": None}
+_morning_log  = {"last_run": None, "result": None, "error": None}
+_morning_sent = {"date": ""}   # 防重複鎖：同一天只推播一次
 
 
 def _send_telegram(text: str):
@@ -1091,6 +1092,10 @@ def _bingo_weekly_deep_learn():
 def _morning_routine():
     """早上9點：傳送 Bingo 每日報告 + 539 今日推薦 到 Telegram（學習已於 00:00 完成）"""
     import traceback
+    today = datetime.now(pytz.timezone("Asia/Taipei")).strftime("%Y-%m-%d")
+    if _morning_sent["date"] == today:
+        return   # 今天已發過，防止重啟補發重複推播
+    _morning_sent["date"] = today
     try:
         df = bingo_core.load_data()
         if df is None or df.empty:
