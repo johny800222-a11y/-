@@ -83,6 +83,7 @@ def create_backup() -> dict:
 
 def send_backup_to_telegram() -> dict:
     """將備份 JSON 上傳到 Telegram，回傳 file_id"""
+    import requests as _req
     token, chat_id = _tg_credentials()
     if not token or not chat_id:
         return {"ok": False, "error": "TG 未設定"}
@@ -92,27 +93,16 @@ def send_backup_to_telegram() -> dict:
     filename = f"lottery_backup_{now_str}.json"
     content  = json.dumps(bundle, ensure_ascii=False, indent=2).encode("utf-8")
 
-    # 用 multipart/form-data 上傳文件
-    boundary = "----BackupBoundary"
-    body  = f"--{boundary}\r\n".encode()
-    body += f'Content-Disposition: form-data; name="chat_id"\r\n\r\n{chat_id}\r\n'.encode()
-    body += f"--{boundary}\r\n".encode()
-    body += f'Content-Disposition: form-data; name="document"; filename="{filename}"\r\n'.encode()
-    body += b"Content-Type: application/json\r\n\r\n"
-    body += content
-    body += f"\r\n--{boundary}\r\n".encode()
-    body += b'Content-Disposition: form-data; name="caption"\r\n\r\n'
-    body += f"\U0001f4be 學習資料備份 {now_str}".encode("utf-8")
-    body += f"\r\n--{boundary}--\r\n".encode()
-
-    req = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendDocument",
-        data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-    )
+    # 使用 requests 上傳（自動處理 multipart）
+    caption = f"💾 迭代備份 {now_str}\n學習輪次：{bundle['files'].get('bingo_learn', {}).get('total_rounds', '?')} 期"
     try:
-        with urllib.request.urlopen(req, timeout=30, context=_ssl_ctx()) as r:
-            result = json.loads(r.read())
+        resp = _req.post(
+            f"https://api.telegram.org/bot{token}/sendDocument",
+            data={"chat_id": chat_id, "caption": caption},
+            files={"document": (filename, content, "application/json")},
+            timeout=30,
+        )
+        result = resp.json()
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
@@ -121,14 +111,15 @@ def send_backup_to_telegram() -> dict:
 
     file_id = result["result"]["document"]["file_id"]
 
-    # 記錄 meta
+    # 記錄 meta（按時間順序，保留最近 60 筆）
     meta = load_meta()
     meta["backups"].append({
         "date":    now_str,
         "file_id": file_id,
         "files":   list(bundle["files"].keys()),
+        "rounds":  bundle["files"].get("bingo_learn", {}).get("total_rounds", 0),
     })
-    meta["backups"] = meta["backups"][-30:]  # 保留最近 30 筆
+    meta["backups"] = sorted(meta["backups"], key=lambda x: x["date"])[-60:]
     meta["last_backup"] = now_str
     save_meta(meta)
 

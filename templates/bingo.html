@@ -398,30 +398,33 @@ async function load() {
   }
 }
 
-function renderProb(probId, adviceId, prob, avgHits) {
+function renderProb(probId, adviceId, prob, avgHits, randomProb, randomAvg) {
   const el = document.getElementById(probId);
   const adv = document.getElementById(adviceId);
   if (!el) return;
   el.textContent = (prob != null ? prob + '%' : '—');
-  // 顏色
-  if (prob >= 60) {
-    el.style.color = '#4cde80';        // 綠
-  } else if (prob >= 50) {
-    el.style.color = '#f5c842';        // 黃
+  // 與隨機基線比較（隨機 6星≈47%，9星≈40%）
+  const baseline = randomProb || 47;
+  const diff = prob - baseline;
+  if (diff >= 5) {
+    el.style.color = '#4cde80';        // 綠：超越隨機 +5%
+  } else if (diff >= -5) {
+    el.style.color = '#f5c842';        // 黃：接近隨機
   } else {
-    el.style.color = '#ff6b6b';        // 紅
+    el.style.color = '#ff6b6b';        // 紅：低於隨機
   }
-  // 建議標籤
+  // 建議標籤（含隨機對比）
   if (adv) {
     let txt = '', color = '';
-    if (prob >= 60) {
-      txt = `✅ 建議買進　近50期均中 ${avgHits} 球`;
+    const diffStr = (diff >= 0 ? '+' : '') + diff + '%';
+    if (diff >= 5) {
+      txt = `✅ 建議買進　近200期均中 ${avgHits} 球（隨機基線 ${randomAvg || 1.5}，${diffStr}）`;
       color = '#4cde80';
-    } else if (prob >= 50) {
-      txt = `⚡ 可考慮　近50期均中 ${avgHits} 球`;
+    } else if (diff >= -5) {
+      txt = `⚡ 可考慮　近200期均中 ${avgHits} 球（vs 隨機 ${diffStr}）`;
       color = '#f5c842';
     } else {
-      txt = `⛔ 建議跳過　近50期均中 ${avgHits} 球`;
+      txt = `⛔ 建議跳過　近200期均中 ${avgHits} 球（低於隨機 ${diffStr}）`;
       color = '#ff6b6b';
     }
     adv.textContent = txt;
@@ -442,7 +445,8 @@ async function loadPick() {
     ).join('');
     document.getElementById('six-heat').textContent = d.scores.six_heat;
     document.getElementById('six-pair').textContent = d.scores.six_pair;
-    renderProb('six-prob', 'six-advice', d.scores.six_prob, d.scores.six_avg);
+    renderProb('six-prob', 'six-advice', d.scores.six_prob, d.scores.six_avg,
+               d.scores.six_random_prob, d.scores.six_random_avg);
 
     // 9星
     const sixSet = new Set(d.six);
@@ -452,7 +456,8 @@ async function loadPick() {
     ).join('');
     document.getElementById('nine-heat').textContent = d.scores.nine_heat;
     document.getElementById('nine-pair').textContent = d.scores.nine_pair;
-    renderProb('nine-prob', 'nine-advice', d.scores.nine_prob, d.scores.nine_avg);
+    renderProb('nine-prob', 'nine-advice', d.scores.nine_prob, d.scores.nine_avg,
+               d.scores.nine_random_prob, d.scores.nine_random_avg);
 
     // 強力關聯對
     if (d.top_pairs && d.top_pairs.length) {

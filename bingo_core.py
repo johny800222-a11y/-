@@ -23,6 +23,9 @@ import pandas as pd
 _DATA_DIR    = Path("/data") if Path("/data").exists() else Path(__file__).parent
 DATA_FILE    = _DATA_DIR / "bingo_history.csv"
 BASE_URL     = "https://www.pilio.idv.tw/bingo/list.asp"
+
+# ── 全局記憶體快取（避免每次請求重讀 CSV，節省記憶體峰值）──────────────────
+_df_cache: "pd.DataFrame | None" = None
 HISTORY_URL  = "https://www.pilio.idv.tw/bingo/list_history.asp"
 HEADERS      = {"User-Agent": "Mozilla/5.0 (compatible; lottery539-app/1.0)"}
 NUM_COLS     = [f"n{i}" for i in range(1, 21)]
@@ -71,6 +74,15 @@ def _parse_page(html: str) -> list[dict]:
                 j += 1
 
             if len(nums) == 20:
+                # 網站新格式：超級獎號在20顆之後，時間在更後面
+                # 繼續往後掃最多5行找時間
+                if not draw_time:
+                    for jj in range(j, min(j + 6, len(lines))):
+                        tm2 = time_re.search(lines[jj])
+                        if tm2:
+                            draw_time = tm2.group(1)
+                            j = jj + 1
+                            break
                 row = {"period": period, "date": cur_date, "time": draw_time}
                 row.update({f"n{k+1}": nums[k] for k in range(20)})
                 records.append(row)
@@ -145,7 +157,9 @@ def fetch_by_dates(dates: list[str]) -> pd.DataFrame:
 
     df = pd.DataFrame(all_records)
     df["datetime"] = pd.to_datetime(df["date"] + " " + df["time"], errors="coerce")
-    df = df.drop_duplicates("period").sort_values("datetime").reset_index(drop=True)
+    df["_pnum"] = pd.to_numeric(df["period"], errors="coerce")
+    df = df.drop_duplicates("period").sort_values(["datetime", "_pnum"], na_position="last").reset_index(drop=True)
+    df = df.drop(columns=["_pnum"])
     return df
 
 
@@ -167,7 +181,9 @@ def fetch_recent(pages: int = 3) -> pd.DataFrame:
 
     df = pd.DataFrame(all_records)
     df["datetime"] = pd.to_datetime(df["date"] + " " + df["time"], errors="coerce")
-    df = df.drop_duplicates("period").sort_values("datetime").reset_index(drop=True)
+    df["_pnum"] = pd.to_numeric(df["period"], errors="coerce")
+    df = df.drop_duplicates("period").sort_values(["datetime", "_pnum"], na_position="last").reset_index(drop=True)
+    df = df.drop(columns=["_pnum"])
     return df
 
 
@@ -186,14 +202,22 @@ def update_latest() -> tuple[pd.DataFrame, bool]:
     new_df["datetime"] = pd.to_datetime(new_df["date"] + " " + new_df["time"], errors="coerce")
 
     if existing is None or existing.empty:
-        df = new_df.drop_duplicates("period").sort_values("datetime").reset_index(drop=True)
+        new_df["_pnum"] = pd.to_numeric(new_df["period"], errors="coerce")
+        df = new_df.drop_duplicates("period").sort_values(["datetime", "_pnum"], na_position="last").reset_index(drop=True)
+        df = df.drop(columns=["_pnum"])
         updated = True
     else:
         existing["datetime"] = pd.to_datetime(existing.get("datetime"), errors="coerce")
-        df = pd.concat([existing, new_df]).drop_duplicates("period").sort_values("datetime").reset_index(drop=True)
+        combined = pd.concat([existing, new_df])
+        combined["_pnum"] = pd.to_numeric(combined["period"], errors="coerce")
+        df = combined.drop_duplicates("period").sort_values(["datetime", "_pnum"], na_position="last").reset_index(drop=True)
+        df = df.drop(columns=["_pnum"])
         updated = len(df) > len(existing)
 
     df.to_csv(DATA_FILE, index=False)
+    # 同步更新記憶體快取
+    global _df_cache
+    _df_cache = df
     return df, updated
 
 
@@ -204,12 +228,18 @@ def _get_html(url: str) -> str:
 
 
 def load_data() -> pd.DataFrame | None:
+    global _df_cache
+    # 有快取直接回傳，不重讀 CSV
+    if _df_cache is not None and not _df_cache.empty:
+        return _df_cache
+    # 首次讀取（啟動或快取失效）
     if not DATA_FILE.exists():
         return None
     df = pd.read_csv(DATA_FILE)
     if df.empty:
         return None
-    return df
+    _df_cache = df
+    return _df_cache
 
 
 def init_data() -> pd.DataFrame:
@@ -241,6 +271,10 @@ def init_data() -> pd.DataFrame:
             pass
         df.to_csv(DATA_FILE, index=False)
 
+    # 同步更新記憶體快取
+    global _df_cache
+    if not df.empty:
+        _df_cache = df
     return df
 
 
@@ -650,7 +684,7 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
     def days(d):
         return int(min(d * DRAWS_PER_DAY, total_rows))
 
-    wU  = min(5,         total_rows)   # 超短期：最近5期（~25分鐘）
+    wU  = min(20,        total_rows)   # 超短期：最近20期（~1.5小時）- 避免5期純噪音
     wS  = days(0.2)                    # 短期：最近~4小時（~50期）
     w1d = days(1)                      # 1天 (~288期)
     w7d = days(7)                      # 7天 (~2016期)
@@ -766,11 +800,13 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
     s2_nom9 = top_n_from(s2_scores, NOM9)
 
     # S3：冷號回歸 — 遺漏期數超過期望值越多，分數越高（以90天為基準）
+    # 改用多層遺漏加成：遺漏2x期望 → 分數2，遺漏4x期望 → 分數4（上限10）
     s3_scores = {}
     for n in BALL_RANGE:
         miss  = miss_periods(n)
-        ratio = miss / expected_gap
-        s3_scores[n] = min(ratio, 8.0)
+        ratio = miss / max(expected_gap, 1)
+        # 遺漏超過1倍期望才計分，越久越高分
+        s3_scores[n] = max(0.0, min(10.0, ratio - 1.0))
     s3_nom6 = top_n_from(s3_scores, NOM6)
     s3_nom9 = top_n_from(s3_scores, NOM9)
 
@@ -924,7 +960,7 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
         s = sum(comat.get((a, b), 0) for a, b in s_pairs)
         return round(s / (len(s_pairs) * max_comat) * 100) if s_pairs else 0
 
-    def avg_hits_backtest(nums, lookback=50):
+    def avg_hits_backtest(nums, lookback=200):
         recent  = df.tail(lookback)
         num_set = set(nums)
         total_hits = total = 0
@@ -935,7 +971,7 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
                 total_hits += len(num_set & drawn)
         return round(total_hits / total, 2) if total else 0.0
 
-    def backtest_pct(nums, min_hits, lookback=50):
+    def backtest_pct(nums, min_hits, lookback=200):
         recent  = df.tail(lookback)
         num_set = set(nums)
         hits = total = 0
@@ -983,5 +1019,12 @@ def smart_pick(df: pd.DataFrame, window: int = 30, learn_weights: dict = None) -
             "nine_pair":  pair_score(nine),
             "nine_prob":  backtest_pct(nine, min_hits=3),
             "nine_avg":   avg_hits_backtest(nine),
+            # 隨機理論基線（供前端對比）
+            # 6選6：E[命中] = 6×20/80 = 1.5；P(≥2命中) ≈ 47%
+            # 9選9：E[命中] = 9×20/80 = 2.25；P(≥3命中) ≈ 40%
+            "six_random_avg":  1.5,
+            "six_random_prob": 47,
+            "nine_random_avg": 2.25,
+            "nine_random_prob": 40,
         }
     }

@@ -437,7 +437,7 @@ def weekly_deep_learn(df=None) -> dict:
         if len(recent7_df) >= 20:
             # 對每個策略跑回測：用歷史前半預測後半，看命中
             test_df = recent7_df.reset_index(drop=True)
-            n_test  = min(50, len(test_df) // 2)   # 回測最近50期
+            n_test  = min(200, len(test_df) // 2)   # 回測最近200期（提升準確度）
             history_df = test_df.iloc[:-n_test]
 
             for i in range(n_test):
