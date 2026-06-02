@@ -358,7 +358,7 @@ def get_faker_learn_weights() -> dict[int, float]:
     return {int(k): v for k, v in _load_faker_learn()["weights"].items()}
 
 
-def faker_daily_learn(date: str, picks: list[int], actual: list[int]) -> dict:
+def faker_daily_learn(date: str, picks: list[int], actual: list[int], prize_quality: float = 1.0) -> dict:
     """
     每日學習：根據實際開獎更新 Faker 號碼學習權重。
     核心目標：≥3顆命中（成本50元，三獎180元起才獲利）
@@ -368,14 +368,18 @@ def faker_daily_learn(date: str, picks: list[int], actual: list[int]) -> dict:
     - 命中4顆 → hit bonus ×3.0
     - 命中3顆 → hit bonus ×2.0（達獲利門檻，強化）
     - 命中0~2顆 → hit bonus ×1.0（正常，不過度懲罰）
+
+    prize_quality: 獎金品質係數（1.0=正常，>1.0=中獎人少/高品質，<1.0=中獎人多/低品質）
+    - 例：今日二獎<100注 → quality=1.3；二獎>300注 → quality=0.8
+    - 讓系統更強記「分獎少」的情境，弱化「分獎多」情境
     """
     state = _load_faker_learn()
     hit_set = set(picks) & set(actual)
     hits    = len(hit_set)
 
-    # 分層強化倍率（對應命中數）
+    # 分層強化倍率（對應命中數）× 獎金品質係數
     TIER_MULTIPLIER = {0: 1.0, 1: 1.0, 2: 1.2, 3: 2.0, 4: 3.0, 5: 4.0}
-    tier_mult = TIER_MULTIPLIER.get(hits, 1.0)
+    tier_mult = TIER_MULTIPLIER.get(hits, 1.0) * max(0.5, min(2.0, prize_quality))
 
     DECAY      = 0.90          # 整體溫和衰減（避免震盪太大）
     HIT_BONUS  = 2.2           # 基礎命中加成（× tier_mult）
@@ -520,7 +524,7 @@ def faker_weekly_deep_learn() -> dict:
     gap_avg   = round(3.0 - tw_avg, 2)   # 目標改為3顆
 
     lines = [
-        "🃏 Faker 策略 週度深度學習報告",
+        "🃏 Faker 策略 週度深度學習報告 (v5)",
         "═" * 36,
         f"{mode_label}",
         "",
@@ -713,7 +717,7 @@ def faker_pick(window: int = 100) -> list[int]:
     qf_vals  = [quality_freq.get(n, 0.0) for n in NUM_RANGE]
     signal_c = {n: _norm(qf_vals, i) for i, n in enumerate(NUM_RANGE)}
 
-    # ── 信號D：迭代學習（命中修正）──────────────────────────────────
+    # ── 信號D：迭代學習（命中修正，含獎金品質）─────────────────────
     learn_w  = get_faker_learn_weights()
     lw_vals  = list(learn_w.values())
     lw_mn, lw_mx = min(lw_vals), max(lw_vals)
@@ -722,12 +726,32 @@ def faker_pick(window: int = 100) -> list[int]:
         for n in NUM_RANGE
     }
 
-    # ── 整合評分 ────────────────────────────────────────────────────
+    # ── 信號E：群眾熱度迴避（實時爬蟲資料）────────────────────────
+    # 使用 faker_crawler 的玩家購買熱度，高熱度 → 避開（分數低）
+    signal_e = {n: 0.5 for n in NUM_RANGE}
+    try:
+        import faker_crawler as _fc
+        crowd = _fc.load_crowd_data()
+        if crowd and "popularity" in crowd:
+            pop = crowd["popularity"]
+            pop_vals = [float(pop.get(str(n), 0)) for n in NUM_RANGE]
+            pop_mn, pop_mx = min(pop_vals), max(pop_vals)
+            if pop_mx > pop_mn:
+                # 反轉：人氣越高 → signal_e 越低（0.0）；人氣越低 → signal_e 越高（1.0）
+                signal_e = {
+                    n: 1.0 - (float(pop.get(str(n), pop_mn)) - pop_mn) / (pop_mx - pop_mn)
+                    for n in NUM_RANGE
+                }
+    except Exception:
+        pass
+
+    # ── 整合評分（v5：加入群眾迴避信號）────────────────────────────
     scores = {
-        n: (0.35 * signal_a.get(n, 0.5) +
-            0.35 * signal_b.get(n, 0.5) +
-            0.20 * signal_c.get(n, 0.5) +
-            0.10 * signal_d.get(n, 0.5))
+        n: (0.30 * signal_a.get(n, 0.5) +
+            0.30 * signal_b.get(n, 0.5) +
+            0.15 * signal_c.get(n, 0.5) +
+            0.15 * signal_d.get(n, 0.5) +
+            0.10 * signal_e.get(n, 0.5))
         for n in NUM_RANGE
     }
 
@@ -791,8 +815,20 @@ def update_faker_pick() -> dict:
     })
     save_faker_tracker(tracker)
 
-    # 觸發每日學習（更新號碼學習權重）
-    faker_daily_learn(latest["date"], today_nums, actual)
+    # 計算獎金品質係數（中獎人數越少 → 品質越高）
+    # 二獎人數基準：100注≈正常，<50注≈高品質，>300注≈低品質
+    second_count = latest.get("second_count", 150)
+    if second_count <= 50:
+        prize_quality = 1.5    # 極少人中，強化學習
+    elif second_count <= 100:
+        prize_quality = 1.2
+    elif second_count <= 200:
+        prize_quality = 1.0    # 正常
+    else:
+        prize_quality = 0.8    # 很多人中，弱化學習（分獎情境）
+
+    # 觸發每日學習（更新號碼學習權重，含獎金品質）
+    faker_daily_learn(latest["date"], today_nums, actual, prize_quality=prize_quality)
 
     return {
         "date":      latest["date"],
