@@ -953,6 +953,35 @@ def api_bingo_pages():
     return jsonify(results)
 
 
+@app.route("/api/bingo/clean_history", methods=["POST"])
+def api_bingo_clean_history():
+    """管理員：清除 bingo_learn.json 內 rounds=0 的污染記錄，重算 avg"""
+    d = request.get_json() or {}
+    if d.get("secret") != "syuan_admin_2026":
+        return jsonify({"ok": False, "msg": "unauthorized"}), 403
+    state = bingo_learner.load_state()
+    before = len(state.get("history", []))
+    # 只保留有實際對獎的記錄（rounds > 0）
+    clean = [r for r in state.get("history", []) if r.get("rounds", 0) > 0]
+    state["history"] = clean
+    # 重算近14期平均
+    recent14 = clean[-14:]
+    state["avg_six_hits"]  = round(sum(r["avg_six_hits"]  for r in recent14) / len(recent14), 2) if recent14 else 0.0
+    state["avg_nine_hits"] = round(sum(r["avg_nine_hits"] for r in recent14) / len(recent14), 2) if recent14 else 0.0
+    # total_rounds 也重算（只算有效期數）
+    state["total_rounds"] = sum(r.get("rounds", 0) for r in clean)
+    bingo_learner.save_state(state)
+    return jsonify({
+        "ok": True,
+        "before": before,
+        "after":  len(clean),
+        "removed": before - len(clean),
+        "avg_six_hits":  state["avg_six_hits"],
+        "avg_nine_hits": state["avg_nine_hits"],
+        "total_rounds":  state["total_rounds"],
+    })
+
+
 @app.route("/api/bingo/recalc", methods=["POST"])
 def api_bingo_recalc():
     """管理員：用正確賠率重算所有已結算快照的獎金"""
