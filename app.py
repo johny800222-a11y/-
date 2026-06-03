@@ -1039,6 +1039,34 @@ def _take_snapshot(slot_label: str):
 _morning_log  = {"last_run": None, "result": None, "error": None}
 _morning_sent = {"date": ""}   # 防重複鎖：同一天只推播一次
 
+# ── 持久化推播鎖（跨重啟防重複）────────────────────────────────────────────────
+_SENT_FLAG_FILE = bingo_core._DATA_DIR / "tg_sent_dates.json"
+
+def _load_sent_flags() -> dict:
+    if _SENT_FLAG_FILE.exists():
+        try:
+            return json.loads(_SENT_FLAG_FILE.read_text())
+        except Exception:
+            pass
+    return {"morning": "", "noon": "", "midnight_learn": ""}
+
+def _save_sent_flags(flags: dict):
+    try:
+        _SENT_FLAG_FILE.write_text(json.dumps(flags, ensure_ascii=False))
+    except Exception:
+        pass
+
+def _already_sent_today(key: str) -> bool:
+    today = datetime.now(pytz.timezone("Asia/Taipei")).strftime("%Y-%m-%d")
+    flags = _load_sent_flags()
+    return flags.get(key, "") == today
+
+def _mark_sent_today(key: str):
+    today = datetime.now(pytz.timezone("Asia/Taipei")).strftime("%Y-%m-%d")
+    flags = _load_sent_flags()
+    flags[key] = today
+    _save_sent_flags(flags)
+
 
 def _send_telegram(text: str):
     """傳送 Telegram 訊息"""
@@ -1066,13 +1094,18 @@ def _send_telegram(text: str):
 def _bingo_midnight_learn():
     """每日 00:05：Bingo 全日開獎結束，結算快照 + 迭代更新學習權重 + 備份（不傳TG，09:00統一傳）"""
     import traceback as tb
+    # 持久化防重複：每天只跑一次（跨重啟有效）
+    if _already_sent_today("midnight_learn"):
+        return
     try:
-        df = bingo_core.load_data()
+        # 確保取最新開獎資料（不用舊快取）
+        df, _ = bingo_core.update_latest()
         if df is None or df.empty:
             return
         data   = bingo_tracker.settle_snapshots(df)
         result = bingo_learner.daily_update(data, df)
         _morning_log.update(last_run=_tw_now(), result=result, error=None)
+        _mark_sent_today("midnight_learn")
         backup_manager.send_backup_to_telegram()
     except Exception:
         _morning_log.update(last_run=_tw_now(), result=None, error=tb.format_exc())
@@ -1093,9 +1126,11 @@ def _morning_routine():
     """早上9點：傳送 Bingo 每日報告 + 539 今日推薦 到 Telegram（學習已於 00:00 完成）"""
     import traceback
     today = datetime.now(pytz.timezone("Asia/Taipei")).strftime("%Y-%m-%d")
-    if _morning_sent["date"] == today:
-        return   # 今天已發過，防止重啟補發重複推播
+    # 持久化防重複：記憶體 + 檔案雙重鎖，避免重啟後重複推播
+    if _morning_sent["date"] == today or _already_sent_today("morning"):
+        return
     _morning_sent["date"] = today
+    _mark_sent_today("morning")
     try:
         df = bingo_core.load_data()
         if df is None or df.empty:
@@ -1132,9 +1167,10 @@ def _faker_noon_report():
     try:
         import datetime as _dt
         today = _dt.datetime.now(pytz.timezone("Asia/Taipei")).strftime("%Y-%m-%d")
-        if _faker_noon_sent["date"] == today:
+        if _faker_noon_sent["date"] == today or _already_sent_today("noon"):
             return   # 今天已送過，略過
         _faker_noon_sent["date"] = today
+        _mark_sent_today("noon")
 
         nums = prize_tracker.faker_pick()
         nums_str = "  ".join(f"{n:02d}" for n in nums)
@@ -1370,7 +1406,7 @@ scheduler.add_job(_weekly_evolution_report,  "cron", day_of_week="mon", hour=9, 
 scheduler.add_job(_bingo_auto_update,     "interval", minutes=5)
 # 每日投注快照（12:00 / 16:00 / 20:00）
 scheduler.add_job(_take_snapshot, "cron", hour=12, minute=0,  args=["12:00"])
-scheduler.add_job(_take_snapshot, "cron", hour=16, minute=0,  args=["16:00"])
+scheduler.add_job(_take_snapshot, "cron", hour=17, minute=0,  args=["17:00"])  # 修正：從16:00改為17:00，符合SLOT_LABELS
 scheduler.add_job(_take_snapshot, "cron", hour=20, minute=0,  args=["20:00"])
 # 00:00 Bingo 迭代學習（開獎 07:05~23:55 結束後）
 scheduler.add_job(_bingo_midnight_learn,      "cron", hour=0,  minute=5)
@@ -1424,16 +1460,16 @@ def _startup_catchup():
         tz = pytz.timezone("Asia/Taipei")
         now = datetime.now(tz)
         today_str = now.strftime("%Y-%m-%d")
-        # 補發 Bingo 每日報告
-        sent_today = _morning_log.get("last_run", "")
-        if now.hour >= 9 and not sent_today.startswith(today_str):
+        # 補發 Bingo 每日報告（持久化鎖已防重複，直接呼叫即可）
+        if now.hour >= 9:
             _morning_routine()
         # 補學 539（確保每次啟動都對齊最新開獎）
         df539 = core.load_data()
         if df539 is not None and not df539.empty:
             _get_or_generate_rec(df539)
-        # 補學 Bingo（若 00:05 已過且尚未學習）
-        if now.hour >= 0 and not sent_today.startswith(today_str):
+        # 補學 Bingo（僅深夜到清晨，避免白天重啟重複學習）
+        # 持久化鎖已防重複，直接呼叫；_bingo_midnight_learn 內部會檢查當日是否已執行
+        if 0 <= now.hour < 9:
             _bingo_midnight_learn()
     except Exception:
         pass
