@@ -77,12 +77,17 @@ def load_state() -> dict:
 
 
 def save_state(state: dict):
-    import os, stat as _stat
+    import os
+    content = json.dumps(state, ensure_ascii=False, indent=2)
+    # 若現有檔案有權限問題，先刪除再重建（目錄可寫即可）
     try:
-        os.chmod(str(LEARN_FILE), 0o666)
-    except Exception:
-        pass
-    LEARN_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+        LEARN_FILE.write_text(content)
+    except PermissionError:
+        try:
+            os.unlink(str(LEARN_FILE))
+        except Exception:
+            pass
+        LEARN_FILE.write_text(content)
 
 
 def _load_weekly_history() -> list:
