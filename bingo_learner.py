@@ -77,6 +77,11 @@ def load_state() -> dict:
 
 
 def save_state(state: dict):
+    import os, stat as _stat
+    try:
+        os.chmod(str(LEARN_FILE), 0o666)
+    except Exception:
+        pass
     LEARN_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2))
 
 

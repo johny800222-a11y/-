@@ -959,6 +959,7 @@ def api_bingo_clean_history():
     d = request.get_json() or {}
     if d.get("secret") != "syuan_admin_2026":
         return jsonify({"ok": False, "msg": "unauthorized"}), 403
+    import os, stat
     state = bingo_learner.load_state()
     before = len(state.get("history", []))
     # 只保留有實際對獎的記錄（rounds > 0）
@@ -970,6 +971,11 @@ def api_bingo_clean_history():
     state["avg_nine_hits"] = round(sum(r["avg_nine_hits"] for r in recent14) / len(recent14), 2) if recent14 else 0.0
     # total_rounds 也重算（只算有效期數）
     state["total_rounds"] = sum(r.get("rounds", 0) for r in clean)
+    # 強制確保可寫入，再儲存
+    try:
+        os.chmod(str(bingo_learner.LEARN_FILE), stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH)
+    except Exception:
+        pass
     bingo_learner.save_state(state)
     return jsonify({
         "ok": True,
