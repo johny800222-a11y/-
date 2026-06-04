@@ -1175,9 +1175,9 @@ def _morning_routine():
         learn_summary = bingo_learner.get_summary()
 
         # Bingo 損益報告 + 命中統計（含迭代進度）
-        result = _morning_log.get("result") or {}
-        avg6   = result.get("avg_six_hits",  learn_summary.get("avg_six_hits",  0))
-        avg9   = result.get("avg_nine_hits", learn_summary.get("avg_nine_hits", 0))
+        # 用14天滾動平均（learn_summary），而非昨日單日值（result），避免單日0值干擾
+        avg6   = learn_summary.get("avg_six_hits",  0)
+        avg9   = learn_summary.get("avg_nine_hits", 0)
         gap6   = round(3.0 - avg6, 2)
         gap9   = round(4.0 - avg9, 2)
         bingo_text = bingo_tracker.daily_report_text(df, learn_summary)
