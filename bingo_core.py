@@ -97,7 +97,7 @@ def _parse_history_page(html: str, date_str: str) -> list[dict]:
     """解析 list_history.asp 的格式（逐期一行，逗號分隔號碼）"""
     period_re = re.compile(r"(\d{9,})")
     time_re   = re.compile(r"\((\d{2}:\d{2})\)")
-    num_re    = re.compile(r"\b([1-9]|[1-7]\d|80)\b")
+    num_re    = re.compile(r"(?<!\d)(0?[1-9]|[1-7]\d|80)(?!\d)")
 
     soup = BeautifulSoup(html, "html.parser")
     rows = soup.find_all("tr")
