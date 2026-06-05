@@ -1141,7 +1141,8 @@ def _bingo_midnight_learn():
         result = bingo_learner.daily_update(data, df)
         _morning_log.update(last_run=_tw_now(), result=result, error=None)
         _mark_sent_today("midnight_learn")
-        backup_manager.send_backup_to_telegram()
+        # [暫停推播] 備份靜默中
+        # backup_manager.send_backup_to_telegram()
     except Exception:
         _morning_log.update(last_run=_tw_now(), result=None, error=tb.format_exc())
 
@@ -1187,7 +1188,8 @@ def _morning_routine():
             f"   9星平均：{avg9:.2f} 顆（目標4.0，差{gap9:+.2f}）\n"
             f"   累計學習：{learn_summary.get('total_rounds', 0)} 期"
         )
-        _send_telegram(bingo_text + learn_line)
+        # [暫停推播] 整理中，稍後重新設計推播格式
+        # _send_telegram(bingo_text + learn_line)
         html = bingo_tracker.daily_report_html(df)
         bingo_tracker.send_daily_email(html)
     except Exception:
@@ -1425,7 +1427,8 @@ def _weekly_evolution_report():
             "═" * 36,
         ]
 
-        _send_telegram("\n".join(lines))
+        # [暫停推播] Bingo 週報整理中
+        # _send_telegram("\n".join(lines))
 
     except Exception:
         import traceback
